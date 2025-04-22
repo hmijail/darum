@@ -5,6 +5,7 @@ import json
 import math
 import re
 import sys
+from typing import Any
 from unicodedata import numeric
 # from matplotlib import table
 from quantiphy import Quantity
@@ -45,6 +46,11 @@ class NumericalTickFormatterWithLimit(NumeralTickFormatter):
 
     def __init__(self, fail_min:int, **kwargs):
         super().__init__(**kwargs)
+        if __name__ == "__main__":
+            print("The generated webpage will only work if this tool is run from its installed script - not the .py file in the package!")
+            # This is because of how Bokeh includes these strings in the webpage. There's a "require(custom/XXXnumerical...)" that seems to catch the module name, 
+            # and in the "static __name__" definition further down we need to get it the same.
+            # This happens when using the scripts installed by e.g. poetry or pipx.
         NumericalTickFormatterWithLimit.fail_min = fail_min
         NumericalTickFormatterWithLimit.__implementation__ = TypeScript(
 """
@@ -71,8 +77,10 @@ export class NumericalTickFormatterWithLimit extends NumeralTickFormatter {
 
 customJS = r"""
 <script type="text/javascript">
-/* Plain navigation to anchors doesn't work because the anchors are in a Panel, and each Panel is a shadowDOM. So we need to do it programmatically. 
-Additionally, Panel doesn't give us references to the shadowDOMs, so to access their content the best option seems to be to search for known ids inside the shadowDOMs */
+/* Plain navigation to anchors doesn't work because the anchors are in a Panel, and each Panel is a shadowDOM. So we need to navigate programmatically. (Panel issue 6156? Closed, but not helping)
+This is done by clickInterceptor.
+Additionally, Panel doesn't give us Python references to the shadowDOMs that will be created by Bokeh, so to find where is an anchor in container C the best option seems to be to search from JS for known C ids inside the shadowDOMs. (Panel issue 7443) 
+This is done with xfind. */
 
 /**
  * @description Locates the first matching elements on the page, even within shadow DOMs, using a complex n-depth selector.
@@ -83,17 +91,26 @@ function xfind(e,t=document){const o=performQuery(e,!1,t);return console.log(`Fo
 
 
 function onLoadHandler()  {
+    "use strict";
     console.log("In onLoadHandler")
-    //setTimeout(delayedAdder, 2000); // Bokeh's DocumentReady event is not working, maybe because we work at the Panel level or because it's a standalone doc
-    setInterval(delayedAdder, 1000) // so that links created by Tabulator when scrolling the tables are also processed
+    // Bokeh's DocumentReady event is not working, maybe because we work at the Panel level or because it's a standalone doc
+    //setTimeout(delayedAdder, 2000);     
+    setInterval(delayedAdder, 1000) // keep looking for links created by Panel's Tabulator when scrolling the tables 
 }
 
+let lines 
+let codeDOM
+
 function delayedAdder() {
+    "use strict";
     codeDOM = xfind('pre>code')
+    if (codeDOM == null) {
+        return
+    }
     lines = Array.from(codeDOM.querySelectorAll('a[id^="L"]'))
 
     //stdoutDOM = xfindAll('.ansi2html-content')
-    anchorlinks = xfindAll('a[href^="#"]')
+    const anchorlinks = xfindAll('a[href^="#"]')
     anchorlinks.forEach((d) => {
         d.addEventListener("click", clickInterceptor)
     })
@@ -102,15 +119,17 @@ function delayedAdder() {
     console.log("delayAdder finished")
 }
 
-function clearSourceBackground() {
-
-    debugger
-    lines.forEach((l) => {
-        l.style.backgroundColor = 'transparent'
+function clearSourceHighlight() {
+    "use strict";
+    const highlighted = Array.from(codeDOM.querySelectorAll('.highlighted'))
+    highlighted.forEach( h => {
+        h.classList.remove("highlighted")
     })
+    console.log("Cleared highlights")
 }
 
 function clickInterceptor(e) {
+    "use strict";
     const target = e.target;
     console.log("clickInterceptor:"+target)
     debugger
@@ -122,25 +141,44 @@ function clickInterceptor(e) {
         }
         window.history.pushState(stateData,"title",window.location.href)
 
-        destID = target.getAttribute('href').slice(1)
-        console.log("Navigating to anchor:" + destID)
-        anchorSelector = 'a[id^="' + destID + '"]'
-        dest = xfind(anchorSelector)
-        dest.scrollIntoView() 
+        const destURL = target.getAttribute('href').slice(1) //remove #
+        console.log(`DestURL = ${destURL}`)
+        //is it a line range?
+        const re = /L(\d+)-(\d+)/
+        let range = re.exec(destURL)
+        let destID
+        if (range !== null) {
+            console.log(`range ${range[1]}-${range[2]}`)
+            destID = `L${range[1]}`
+        } else {
+            destID = destURL
+        }
+        const anchorSelector = 'a[id^="' + destID + '"]' // shouldn't be id= ??
+        const dest = xfind(anchorSelector)
+        dest.scrollIntoView() // shouldn't be in the IF?
         if (codeDOM.querySelectorAll(anchorSelector) !== null) {
-            highlighted = Array.from(codeDOM.querySelectorAll('.highlighted'))
-            highlighted.forEach( h => {
-                h.classList.remove("highlighted")
-            })
-            dest.classList.add("highlighted")
+            clearSourceHighlight() // should probably be outside of IF??
+            if (range == null) {
+                dest.classList.add("highlighted")
+            } else {
+                for (let i=range[1]; i<=range[2]; i++){
+                    const anchorSelector = `a[id="L${i}"]`
+                    const dest = xfind(anchorSelector)
+                    dest.classList.add("highlighted")
+                    console.log(`Highlighted ${anchorSelector}`)
+                }
+            }
+        } else {
+            console.log(`Selector not found: ${anchorSelector}`)
         }
         console.log("clickInterceptor done")
     }
 }
 
 function PopStateHandler(e) {
+    "use strict";
     debugger
-    var stateData = e.state;
+    let stateData = e.state;
     console.log("recovering state:" + JSON.stringify(stateData))
     document.documentElement.scrollTop = stateData.scrollTop
 }
@@ -188,25 +226,24 @@ def plot(args) -> int:
     log.setLevel(numeric_level)
 
     if not args.paths:
-        # Get the path of the latest file in the current directory
-        latest_file = max(glob.glob("darum/*"), key=os.path.getmtime)
-        if latest_file.endswith(".json"):
-            print(f"Plotting latest file in darum/: {os.path.basename(latest_file)}")
-            args.paths.append(latest_file)
+        # Get the path of the latest JSON file in the output directory
+        jsons = glob.glob(args.output_dir+"/*.json")
+        if jsons != []:
+            latest_json = max(jsons, key=os.path.getmtime)
+            print(f"Plotting latest JSON file in output dir: {args.output_dir}/{os.path.basename(latest_json)}")
+            args.paths.append(latest_json)
         else:
-            sys.exit("Error: No file given, and latest file in dir is not JSON.")
+            sys.exit("Error: No file given, and no JSON file in the output dir.")
 
     results = readLogs(args.paths, args.recreate_pickle)
 
-    assert len(args.paths) == 1, "Multi-file support is not complete"
+    assert len(args.paths) == 1, "Multi-file support is not complete. Please specify only 1 file."
     p = args.paths[0]
     with open(p) as jsonfile:
         darum_context = json.load(jsonfile)['darum']
-    fdict = darum_context['files']
     sourcecode = {}# = list(darum_context['files'].values())[0].splitlines()
-    for f,c in darum_context['files'].items():
-        fname = f.split('.')[0] # remove the hash and ext
-        sourcecode[fname] = c.splitlines()
+    for fname,fdata in darum_context['files'].items():
+        sourcecode[fname] = fdata['contents'].splitlines()
         log.debug(f"Found source for '{fname}'")
 
     # PROCESS THE DATA
@@ -219,7 +256,7 @@ def plot(args) -> int:
     minOoR = inf # min RC of the OoR entries
     minFailures = inf # min RC of the failed entries
     maxFailures = -inf # max RC of the failed entries
-    df = pd.DataFrame( columns=["minRC", "maxRC", "span", "success", "OoR","fail","fail_extr","AB","loc","loc_txt","diag","displayName", "desc", "src"])
+    df = pd.DataFrame( columns=["minRC", "maxRC", "span", "success", "OoR","fail","fail_extr","AB","loc_html","loc_txt","diag","displayName", "desc", "src"])
     df.index.name="element"
 
 
@@ -261,33 +298,33 @@ def plot(args) -> int:
                 log.warning(f"LimitRC={args.limitRC} but {k}({v.AB=}) has maxRC={Quantity(maxRC_entry)}. Should be OoR! ")
             if minOoR_entry < args.limitRC:
                 log.warning(f"MinOoR for {k} is {min(v.OoR)}, should be > LimitRC={args.limitRC}")
+
         # Calculate the % span between max and min
         span = (maxRC_entry-minRC_entry)/minRC_entry
         # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {span:>8.2%}"
         # log.debug(info)
         fail_extremes = "" if minFailures_entry == inf else f"{smag(minFailures_entry)} - {smag(maxFailures_entry)}"
         loc_txt =  v.loc if filenames_only_one else f"{v.filename}:{v.loc}"
-        # if we have the source for the location, make the location text into an hyperlink, and show the line
-        fname = os.path.splitext(v.filename)[0]
+        # if we have the source code for the location, turn the location text into an hyperlink
         src = ""
-        if sourcecode.get(fname) is None:
-            loc = loc_txt
+        if sourcecode.get(v.filename) is None:
+            loc_html = loc_txt
         else:
-            loc = "" if filenames_only_one else f"{v.filename}:"
-            loc_range = re.match(r'L(\d+)-(\d+)',v.loc)
+            loc_html = "" if filenames_only_one else f"{v.filename}:"
+            loc_range = re.match(r'L(\d+)-(\d+)',v.loc) #Lddd-ddd
             if loc_range:
-                firstline = loc_range.group(1)
-                loc += f'<b><a href="#L{firstline}">L{firstline}</a></b>-{loc_range.group(2)}'
-            loc_LC = re.match(r'(\d+):(\d+)',v.loc)
-            if loc_LC:
-                firstline = int(loc_LC.group(1))
-                col = int(loc_LC.group(2))
-                loc += f'<a href="#L{firstline}">{firstline}</a>:{col}'
-                srcline = sourcecode[fname][firstline-1]
-                src = srcline.lstrip()
-                leading_whitespace = len(srcline)-len(src) # This is correct if tab == 1 char. Dafny 4.8 does this, hence prints error markers out of place in stdout when there's tabs; some changes might come. https://github.com/dafny-lang/dafny/issues/5718
-                adjusted_col = col-leading_whitespace
-                src = src[:adjusted_col] + '🛑' + src[adjusted_col:] 
+                loc_html += f'<a href="#{v.loc}">{v.loc}</a>'
+            else:
+                loc_LC = re.match(r'(\d+):(\d+)',v.loc) #ddd:ddd
+                if loc_LC:
+                    firstline = int(loc_LC.group(1))
+                    col = int(loc_LC.group(2))
+                    loc_html += f'<a href="#L{firstline}">{firstline}</a>:{col}'
+                    srcline = sourcecode[v.filename][firstline-1]
+                    src = srcline.lstrip()
+                    leading_whitespace = len(srcline)-len(src) # This is correct if tab == 1 char. Dafny 4.8 does this, hence prints error markers out of place in stdout when there's tabs; some changes might come. https://github.com/dafny-lang/dafny/issues/5718
+                    adjusted_col = col-leading_whitespace
+                    src = src[:adjusted_col] + '🛑' + src[adjusted_col:] 
 
 
         df.loc[k] = {
@@ -298,7 +335,7 @@ def plot(args) -> int:
             "OoR" : len(v.OoR),
             "fail" : len(v.failures),
             "AB" : v.AB,
-            "loc"   : loc,
+            "loc_html"   : loc_html,
             "loc_txt" : loc_txt,
             "diag": diag,
             "displayName": v.displayName,
@@ -326,7 +363,7 @@ def plot(args) -> int:
         # because AB0 is summarized and easier to detect as non-AB in next steps
         dnABs = df[(df.displayName==d) & (df.AB>1)]
         if dnABs.empty:
-            df.loc[(df.displayName==d) & (df.AB==0),"loc"] = df.loc[(df.displayName==d) & (df.AB==1),"loc"].values[0]
+            df.loc[(df.displayName==d) & (df.AB==0),"loc_html"] = df.loc[(df.displayName==d) & (df.AB==1),"loc_html"].values[0]
             df.drop(df[(df.displayName==d) & (df.AB==1)].index, inplace=True)
             df.loc[(df.displayName==d),"maxAB"] = 0
         else:
@@ -540,7 +577,7 @@ def plot(args) -> int:
     dropped_cols = ["element_ordered","AB","excluded","displayName","maxAB"]
 
     dropped_cols_text = dropped_cols.copy()
-    dropped_cols_text += ["loc","src"]
+    dropped_cols_text += ["loc_html","src"]
     print(df.drop(columns=dropped_cols_text, errors='ignore')
             # .rename(columns={
             #     "span"          : "RC span %",
@@ -736,6 +773,7 @@ def plot(args) -> int:
     dft1 = df.drop(columns=dropped_cols).rename(
         columns={
             "span":"RCspan%",
+            "loc_html":"location"
             }
     )
 
@@ -748,7 +786,7 @@ def plot(args) -> int:
         'success': NumberFormatter(format='0,0', text_align = 'right'),
         'fail': NumberFormatter(format='0,0', text_align = 'right'),
         'OoR': NumberFormatter(format='0,0', text_align = 'right'),
-        'loc': {'type':'html'}
+        'location': {'type':'html'}
     }
 
     table = pn.widgets.Tabulator(dft1, 
@@ -780,6 +818,7 @@ def plot(args) -> int:
         dft2 = df_vrs.drop(columns=dropped_cols, errors='ignore').rename(
                             columns={
                                 "span":"RCspan%",
+                                "loc_html":"location"   
                                 })
 
         table_vrs = pn.widgets.Tabulator(dft2, 
@@ -804,17 +843,17 @@ def plot(args) -> int:
     legend_icons = """
 ## Legend
 ### Elements
-MemberName [C] = MemberName's Correctness assertions (as opposed to the default Well-Formedness)
-MemberName B2  = MemberName's Assertion Batch 2
+MemberName [C] = MemberName's Correctness assertions (as opposed to the default Well-Formedness)  
+MemberName B2 = MemberName's Assertion Batch 2  
 
 
 ### Diagnostic icons
-❌  All iterations failed verification
-⌛️  Some iteration ran Out of Resources
-❗️  Flipflopping result: some successes, some failures
-❓  Notable entry because there was only 1 success
-📊  Item present in the plot
-⛔️  Item excluded from plot
+❌  All iterations failed verification  
+⌛️  Some iteration ran Out of Resources  
+❗️  Flipflopping result: some successes, some failures  
+❓  Notable entry because there was only 1 success  
+📊  Item present in the plot  
+⛔️  Item excluded from plot  
 """
     legend_pane = pn.pane.Markdown(legend_icons)
 
@@ -835,7 +874,7 @@ MemberName B2  = MemberName's Assertion Batch 2
             pane_cmds.append(pn.pane.Markdown("**" + ' '.join(j['cmd']) + "**"))
             pane_cmds.append(pn.pane.HTML(f"""<a id="stdout"></a>""" + 
                     conv.convert("".join(j['output'])),styles={'background-color': '#CCC'}))
-            for name,source in j['files'].items():
+            for fname,fdata in j['files'].items():
     #             source = """Here is an example:
 
     #     :::python
@@ -851,7 +890,7 @@ MemberName B2  = MemberName's Assertion Batch 2
                 # Pygments doesn't highlight Dafny, anyway.
                 # So we add our own line numbers.
                 numbered = ""
-                splitted = source.splitlines(False)
+                splitted = fdata['contents'].splitlines(False)
                 lines_max = len(splitted)
                 num_digits = int(math.log10(lines_max))
                 for i,l in enumerate(splitted):
@@ -864,7 +903,7 @@ a[id^="L"] {
   background-color : yellow
 }
 '''
-                pane_cmds.append(pn.pane.HTML(f'<h2 id="title">{name}</h2><pre><code>{numbered}</code></pre>', stylesheets=[stylesheet]))#, renderer="markdown",extensions=["fenced_code","codehilite"]))
+                pane_cmds.append(pn.pane.HTML(f'<h2 id="title">{fname}</h2><pre><code>{numbered}</code></pre>', stylesheets=[stylesheet]))#, renderer="markdown",extensions=["fenced_code","codehilite"]))
         except Exception as e:
             log.info(f"Failed to get extra context data from {p}:{e}")
             continue

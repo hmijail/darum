@@ -1,6 +1,6 @@
 # DAfny Resource Usage Measurement
 
-A set of tools to detect and diagnose brittle verification.
+A set of tools to detect and help diagnose brittle verification.
 
 *Darum? Ach, warum!*
 
@@ -38,15 +38,19 @@ Darum consists of 3 loosely coupled tools:
 
 Darum's tools are written in Python and available in Pypi.
 
-Probably the easiest way to install Darum is using `pipx`, which should be available in all common package managers, like `brew` in macOS.
+Probably the easiest way to install DARUM is using `pipx`, which should be available in all common package managers, like `brew` in macOS.
 
 ```
 $ brew install pipx
 ...
 $ pipx install darum
 ```
+This will make DARUM's tools available as common CLI commands.
 
-This will make Darum's tools available as common CLI commands.
+Eventually you can upgrade DARUM with
+```
+$ pipx upgrade darum
+```
 
 ## Usage
 
@@ -63,10 +67,13 @@ In general, the workflow will be:
 $ dafny_measure myfile.dfy
 ...
 Generated logfile XYZ.log
+
 $ plot_distribution XYZ.log
 ...
+
 $ dafny_measure myfile.dfy --isolate-assertions --extra "--filter-symbol expensiveFunction"
 ...
+
 $ compare_distribution XYZ.log -i XYZ_IA.log
 ...
 ```
@@ -157,3 +164,13 @@ Since version 4.4, Dafny includes a standard library that provides pre-verified 
 ### Section on Verification debugging in Ref Manual
 
 Link XXX, plus extra docs?
+
+
+# Hacking
+
+Clone the repo to your system and install it in editable mode with pipx.
+
+```
+cd darum
+pipx install -e .
+```

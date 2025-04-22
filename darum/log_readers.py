@@ -15,7 +15,7 @@ def smag(i) -> str:
     return f"{Quantity(i):.3}"
 
 def shortenDisplayName(dn:str) -> str:
-    new: str = dn.replace(" (well-formedness)","") # WF is almost everywhere, so take it as default; only mention anything non-WF
+    new: str = dn.replace(" (well-formedness)","") # WF is almost everywhere, so take it as default and only mention anything non-WF
     new = new.replace(" (correctness)","[C]")
     return new.strip()
 

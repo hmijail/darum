@@ -14,14 +14,14 @@ import shutil
 import sys
 import time
 import logging
-from datetime import datetime as dt, timedelta as td
+from datetime import datetime as dt, timedelta as td, timezone
 import psutil
 from quantiphy import Quantity
 from typing import NoReturn
 from sh import Command
 from functools import partial
 
-from darum import plot_distribution
+#from darum import plot_distribution
 
 
 
@@ -31,7 +31,7 @@ def main():
     parser.add_argument("-e", "--extra_args", default="", help="A quoted string of extra arguments to pass to dafny")
     parser.add_argument("-d", "--dafnyexec", default="dafny", help="The dafny executable")
     parser.add_argument("-r", "--rseed", default=str(int(time.time())),help="The random seed. By default is seeded with the current time.")
-    parser.add_argument("-i", "--iter", default="10", help="Number of iterations. Default=%(default)s")
+    parser.add_argument("-i", "--mut", default="10", help="Number of mutations. Default=%(default)s")
     parser.add_argument("-f", "--format", default="json", help=argparse.SUPPRESS) # CVS needs updating
     parser.add_argument("-s", "--filter-symbol", help="Only verify symbols containing this substring.")
     parser.add_argument("-l", "--limitRC", type=Quantity, default=Quantity("10M"), help="The Resource Count limit. Accepts magnitudes (K,M,G...). Default=%(default)s")
@@ -39,7 +39,7 @@ def main():
     parser.add_argument("-c", "--verify-included-files",action="store_true", help="Verify included files")
     parser.add_argument("-z", "--z3-path", help="Path to Z3")
     parser.add_argument("-o", "--output_dir", default="darum", help="Directory to store the results. Default=%(default)s")
-    parser.add_argument("-v", "--verbose", action="count", default=0)
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Use multiple times to increase verbosity")
     parser.add_argument("-n", "--no-plotting",action="store_true", help="Do not call plot_distribution after verification")
 
     args = parser.parse_args()
@@ -61,16 +61,22 @@ def main():
     dafnyfiles_str = ""
     source_dict  = {}
     for df in args.dafnyfiles:
-        dfb = os.path.basename(df)
+        dfbase = os.path.basename(df)
         # with open(df, "rb") as f:
         #     digest = hashlib.file_digest(f, "md5")
         with open(df, "r") as f:
             src= f.read()
+        mod_tstamp = os.stat(df).st_mtime
+        mod_date = dt.fromtimestamp(mod_tstamp, tz=timezone.utc).isoformat()
         digest = hashlib.md5(bytes(src, encoding="utf-8"))
         hash = digest.hexdigest()
-        dfsplit = os.path.splitext(dfb)
+        dfsplit = os.path.splitext(dfbase)
         filenamehash = f"{dfsplit[0]}.H{hash[0:4]}{dfsplit[1]}"
-        source_dict[filenamehash]=src
+        source_dict[dfbase] = {
+            "contents": src,
+            "hash": hash,
+            "modified": mod_date, #to report changes it's more human-friendly to use the modif_date than a hash
+        }
         dafnyfiles_str += f"_{dfsplit[0]}_H{hash[0:4]}"
         # take a snapshot of this input file, adding the same hash piece as in the log
         dfcopy = os.path.join(args.output_dir,filenamehash)
@@ -79,10 +85,9 @@ def main():
     z3str = f"_Z{Path(args.z3_path).name}" if args.z3_path else ""
     symbol = f"_s{args.filter_symbol}" if args.filter_symbol else ""
     dafnyexec= os.path.basename(args.dafnyexec)
-    argstring4filename = f"{dafnyexec}{dafnyfiles_str}_IT{args.iter}_L{args.limitRC}{IAstr}{VIFstr}{z3str}{symbol}_{args.extra_args}".replace("/","").replace("-","").replace(":","").replace(" ","")
-    d = dt.now()
-    dstr = d.strftime('%m%d-%H%M%S')
-    logfilename = os.path.join(args.output_dir, dstr + "_" + argstring4filename)
+    argstring4filename = f"{dafnyexec}{dafnyfiles_str}_M{args.mut}_L{args.limitRC}{IAstr}{VIFstr}{z3str}{symbol}_{args.extra_args}".replace("/","").replace("-","").replace(":","").replace(" ","")
+    nowstr = dt.now().strftime('%m%d-%H%M%S')
+    logfilename = os.path.join(args.output_dir, nowstr + "_" + argstring4filename)
     # for convenience, take another snapshot of each single-input-file with the same full filename as the log
     # if len(args.dafnyfiles)==1:
     #     df= args.dafnyfiles[0]
@@ -95,7 +100,7 @@ def main():
         # args.dafnyexec,
         "measure-complexity",
         "--random-seed", args.rseed,
-        "--iterations", args.iter,
+        "--mutations", args.mut,
         "--log-format", f"{args.format};LogFileName={logfilename}.{args.format}",
         "--resource-limit", str(int(args.limitRC)),
         "--isolate-assertions" if args.isolate_assertions else "",
@@ -119,19 +124,18 @@ def main():
     atexit.register(killProc)
 
     def process_output(stream, store, line):
-        # nonlocal iteration_tstamp
-        nonlocal iteration_tstamp
-        nonlocal iteration_times
+        nonlocal mutation_tstamp
+        nonlocal mutation_times
         nonlocal output_last_tstamp
         now = dt.now()
-        if "Starting verification of iteration" in line or "The total consumed resources are" in line:
-            if iteration_tstamp is not None:
-                delta = int((now - iteration_tstamp).total_seconds())
-                l = f"DARUM:Iteration took {delta} s."
-                print(l)
+        if "Starting verification of mutation" in line or "The total consumed resources are" in line:
+            if mutation_tstamp is not None:
+                delta = int((now - mutation_tstamp).total_seconds())
+                l = f"DARUM:mutation took {delta} s.\n"
+                print(l, end=None)
                 store.append(l)
-                iteration_times.append(delta)
-            iteration_tstamp = now
+                mutation_times.append(delta)
+            mutation_tstamp = now
         l = len(line)
         # if l>0:
         prefix = f'{dt.now().strftime('%H:%M:%S')}: ' if args.verbose>2 else ""
@@ -141,15 +145,15 @@ def main():
         #     log.warning("")
         output_last_tstamp = now
 
-    stdout_store = []
+    stdout_lines = []
     # stderr = []
 
     dafny = Command(args.dafnyexec)
 
-    iteration_tstamp = None
-    iteration_times = []
+    mutation_tstamp = None
+    mutation_times = []
     output_last_tstamp = dt.now()
-    dafny_proc = dafny(arglist,_out=partial(process_output, sys.stdout, stdout_store), _bg=True, _err_to_out=True, _ok_code=[0,1,2,3,4],_return_cmd=True, _new_session=True)
+    dafny_proc = dafny(arglist,_out=partial(process_output, sys.stdout, stdout_lines), _bg=True, _err_to_out=True, _ok_code=[0,1,2,3,4],_return_cmd=True, _new_session=True)
     # p = sp.Popen(arglist, bufsize=-1, stdout=sp.PIPE, stderr=sp.PIPE, text=True, process_group=0)
     # os.set_blocking(p.stdout.fileno(), False)
     # os.set_blocking(p.stderr.fileno(), False)
@@ -173,7 +177,7 @@ def main():
         if delta > 1 and delta % 60 == 0 :
             l = f"DARUM: no output for {delta/60} minutes..."
             print(l)
-            stdout_store.append(l)
+            stdout_lines.append(l)
         time.sleep(1)
 
     dafny_proc.wait()
@@ -183,34 +187,34 @@ def main():
     logger.debug(f"{pgid=}, {exit_code=}")
 
     print()
-    line = f"DARUM:{iteration_times=}"
+    line = f"DARUM:{mutation_times=}"
     print(line)
-    stdout_store.append(line)
+    stdout_lines.append(line)
     # if a log file was created, add our own data to it
     if exit_code in [0,2,3,4]:
         with open(f"{logfilename}.{args.format}") as jsonfile:
             try:
-                j = json.load(jsonfile)
-                verificationResults = j["verificationResults"]
+                json_data = json.load(jsonfile)
+                json_data["verificationResults"]
             except:
                 logger.error("No verificationResults!")
-        d = {}
-        d['files']=source_dict
-        d['output']=stdout_store
-        d['cmd']=[args.dafnyexec] + arglist
-        j["darum"]=d
+        darum_context = {}
+        darum_context['files']=source_dict
+        darum_context['output']=stdout_lines
+        darum_context['cmd']=[args.dafnyexec] + arglist
+        json_data["darum"]=darum_context
         with open(f"{logfilename}.{args.format}",mode='w') as jsonfile:
-            json.dump(j,jsonfile)
+            json.dump(json_data,jsonfile)
         print(f"DARUM:Generated augmented logfile at {logfilename}.{args.format}")
 
     print("\n-----------------------------------------------------------------------------------\n")
 
     # Check for leaked Z3 processes
-    d = dt.now()
+    darum_context = dt.now()
     leaked_procs_old = []
     leaked_procs_found = False
     while True:
-        elapsed = int((dt.now()-d).total_seconds())
+        elapsed = int((dt.now()-darum_context).total_seconds())
         leaked_procs = []
         for proc in psutil.process_iter(['pid', 'name']):
             try:
