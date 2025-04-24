@@ -40,7 +40,7 @@ def main():
     parser.add_argument("-z", "--z3-path", help="Path to Z3")
     parser.add_argument("-o", "--output_dir", default="darum", help="Directory to store the results. Default=%(default)s")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Use multiple times to increase verbosity")
-    parser.add_argument("-n", "--no-plotting",action="store_true", help="Do not call plot_distribution after verification")
+    parser.add_argument("--stop",action="store_true", help="Do not call plot_distribution after verification")
 
     args = parser.parse_args()
 
@@ -136,13 +136,9 @@ def main():
                 store.append(l)
                 mutation_times.append(delta)
             mutation_tstamp = now
-        l = len(line)
-        # if l>0:
         prefix = f'{dt.now().strftime('%H:%M:%S')}: ' if args.verbose>2 else ""
         stream.write(prefix + line)
         store.append(line)
-        # else:
-        #     log.warning("")
         output_last_tstamp = now
 
     stdout_lines = []
@@ -234,7 +230,7 @@ def main():
     if leaked_procs_found and elapsed>1:
         logger.warning(f"Leaked processes finished after {elapsed} secs")
 
-    if (args.no_plotting):# or (exit_code not in [0,1,2,3,4]):
+    if (args.stop):# or (exit_code not in [0,1,2,3,4]):
         return exit_code
 
     pd = Command("plot_distribution")

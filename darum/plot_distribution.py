@@ -202,15 +202,15 @@ if (document.readyState !== "complete") {
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('paths', nargs='*', help="File/s to plot. If absent, tries to plot the latest file in the current dir.")
+    parser.add_argument('paths', nargs='*', help="File/s to plot. If absent, tries to plot the latest JSON file in the output dir.")
     parser.add_argument("-v", "--verbose", action="count", default=0)
-    parser.add_argument("-p", "--recreate-pickle",action="store_true")
+    parser.add_argument("-p", "--recreate-pickle",action="store_true", help=argparse.SUPPRESS) #unmaintained
     parser.add_argument("-n", "--nbins", default=50)
     #parser.add_argument("-d", "--RCspan", type=int, default=10, help="The span maxRC-minRC (as a % of max) over which a plot is considered interesting")
     parser.add_argument("-x", "--exclude", action='append', default=[], help="DisplayNames matched by this regex will be excluded from plot")
     parser.add_argument("-o", "--output_dir", default="darum", help="Directory to store the results. Default=%(default)s")
     parser.add_argument("-t", "--top", type=int, default=5, help="Plot only the top N most interesting. Default: %(default)s")
-    #parser.add_argument("-s", "--stop", default=False, action='store_true', help="Process the data but stop before plotting.")
+    parser.add_argument("--stop", default=False, action='store_true', help="Generate the HTML file but do not open it.")
     parser.add_argument("-s", "--force-standard-mode", default=False, action='store_true', help="Treat Assertion Batches just like members. Default: autodetect")
     parser.add_argument("-a", "--force-IA-mode", default=False, action='store_true', help="Whether to separate Assertion Batches and focus on them, instead of members. Best for Isolated Assertions mode. Default: autodetect")
     parser.add_argument("-l", "--limitRC", type=Quantity, default=None, help="The RC limit that was used during verification. Used only to check consistency of results. Default: %(default)s")
@@ -224,6 +224,8 @@ def plot(args) -> int:
     log = logging.getLogger(__name__)
     numeric_level = max(logging.DEBUG, logging.WARNING - args.verbose * 10)
     log.setLevel(numeric_level)
+    logging.getLogger("darum.log_readers").setLevel(numeric_level)
+
 
     if not args.paths:
         # Get the path of the latest JSON file in the output directory
@@ -603,9 +605,7 @@ def plot(args) -> int:
 
     print(f"Comments:\n{comment_box}")
 
-    # if args.stop:
-    #     log.info("Stopping as requested.")
-    #     return(0)
+
 
     # HOLOVIEWS
 
@@ -764,9 +764,9 @@ def plot(args) -> int:
     dropped_cols += ["loc_txt"]
     df["span"] = df["span"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
     # We can't use magnitudes with the RCs because then the tables can't be sorted correctly.
-    df.minRC = df.minRC.apply(lambda x: x if abs(x)<inf else "-")
-    df.maxRC = df.maxRC.apply(lambda x: x if abs(x)<inf else "-")
-    df.success = df.success.apply(lambda x: x if x!=0 else "-")
+    df.minRC = df.minRC.apply(lambda x: x if abs(x)<inf else nan)
+    df.maxRC = df.maxRC.apply(lambda x: x if abs(x)<inf else nan)
+    df.success = df.success.apply(lambda x: x if x!=0 else nan)
     #df.OoR = df.OoR.apply(lambda x: x if x!=0 else "-")
     #df.fail = df.fail.apply(lambda x: x if x!=0 else "-")
 
@@ -779,7 +779,7 @@ def plot(args) -> int:
 
 
     bokeh_formatters = {
-        'minRC': NumberFormatter(format='0,0', text_align = 'right'),
+        'minRC': NumberFormatter(format='0,0', text_align = 'right',nan_format = '-'),
         'maxRC': NumberFormatter(format='0,0', text_align = 'right'),
         # 'RCspan%': NumberFormatter(format='0.00', text_align = 'right'),
         'score': NumberFormatter(format='0,0', text_align = 'right'),
@@ -930,6 +930,10 @@ a[id^="L"] {
     plot.save(plotfilepath,title=title)#, resources=INLINE)
 
     print(f"Created file {plotfilepath}")
+
+    if args.stop:
+        log.debug("Stopping as requested.")
+        return(0)
     os.system(f"open {plotfilepath}")
 
 

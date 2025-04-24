@@ -1,6 +1,8 @@
+from collections import Counter
 import csv
+from enum import Enum, auto
 import json
-import logging as log
+import logging
 from math import ceil, floor, log10
 import re
 from datetime import datetime as dt, timedelta as td
@@ -10,6 +12,8 @@ import sys
 from typing import Tuple
 
 from quantiphy import Quantity
+
+log = logging.getLogger(__name__)
 
 def smag(i) -> str:
     return f"{Quantity(i):.3}"
@@ -60,8 +64,7 @@ def check_locations_ABs(locations) -> None:
                 # if len(ABs) > 1:
                 #     log.debug(f"{loc} has {len(ABs)} ABs: {ABs}")
                 continue
-            if ABs_first != ABs:
-                log.warn(f"{loc} has changing ABs. Until now it was {ABs_first}. But for rseed {r}, it's {ABs}")
+            assert ABs_first == ABs, f"{loc} has changing ABs. Until now it was {ABs_first}. But for rseed {r}, it's {ABs}"
 
 def readCSV(fullpath) -> resultsType:
     """Reads the CSV file into the global usages map"""
@@ -79,6 +82,11 @@ def readCSV(fullpath) -> resultsType:
             results[dn] = results.get(dn,[]) + [int(rc)]
     log.info(f"{fullpath} :{rows} rows")
     return rows
+
+class SkippingReasons(Enum):
+    NONE = auto()
+    FAIL = auto()
+    OOR = auto()
 
 
 # there's no JSON schema for the logs. The structure is based on what we've seen experimentally,
@@ -101,21 +109,22 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
     # A JSON verification log contains a list of verificationResults (vR) objects.
     # Each vR corresponds to a member (function, method...)
     # and contains its Display Name, overall Resource Count, verification outcome and the vcResults (Assertion Batches)
-    #   Each AB contains its number (vcNum), outcome, Resource Count, random seed (strange that it's in the vcR instead of the vR), and a list of assertions
+    #   Each AB contains its number (vcNum >= 1), outcome, Resource Count, random seed (strange that it's in the vcR instead of the vR), and a list of assertions
     # Verification iterations can be distinguished because of the random seed.
     # If "isolate assertions", split_here, etc were NOT used, then the AB list in a vR will (usually?) contain only 1 AB
     # Conversely, if those are used, then the AB list in a vR will contain multiple ABs
-    # So the 2 extremes are: 1 AB with all the assertions, or multiple ABs with 1 assertion each.
-    # Assertions contain the filename, line, col, and description.
-    # In plots we work at the level of ABs. So if there is more than 1 assertion in 1 AB, then we don't try to represent their line locations in the plots/tables.
-    # ABs are numbered from 1 onwards.
+    # So the 2 extremes are:
+    # * standard mode: 1 vR = 1 AB with all the assertions
+    # * IAmode: 1 vR = multiple ABs with 1 assertion each.
+    # Assertions contain the filename, line, col, and description. They do not contain costs.
+    # In the analysis we work with costs, so we need to work at the level of ABs, not assertions. So if there is more than 1 assertion in 1 AB, then we don't try to represent their individual line locations in the plots/tables.
     #
     # How this translates to our output:
     # Dafny by default reports at the vR level, and we keep that spirit.
-    # The vR stores the summary info for its ABs. For our results, it gets AB number 0. Doesn't contain locations, so we pick it from the first of the vR's ABs that contains an assertion.
+    # The vR stores the summary info for its ABs. For our results, it gets AB number 0. Doesn't contain locations, so we assign something meaningful from the underlying ABs
     # AB0 doesn't appear in the "element name" of the vR, since the vR is not an AB anyway.
     # We store each AB's info separately. So there's AB0, 1,... n
-    # If an AB contains only 1 assertion, we store its filename:line:col. If there's more than 1 assertion, we only store filename:*.*.
+    # If an AB contains only 1 assertion, we store its filename:line:col. If there's more than 1 assertion, we store filename:L<firstLine>-<lastLine>.
 
     locations: dict[tuple,dict[int,dict[str,str]]] = {} # relate (file,line,col) to {randomseed:{displayname_AB:description}}; allows to compare results per file position
         # the idea is that a given location, across all randomseeds, should have the same ABs and same results/descriptions
@@ -135,98 +144,108 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
             sys.exit(f"{shortDN} has no random seed. Maybe this log was created by `dafny verify` instead of `measure-complexity`?")
 
         iteration_costs[vr_rseed] = iteration_costs.get(vr_rseed, 0) + vr_RC
-        det = results.get(shortDN, Details())
-        det.AB = 0
-        det.displayName = shortDN # they only differ in ABs
+        det_vr = results.get(shortDN)
+        if det_vr is None:
+            # first appearance of this shortDN
+            det_vr = Details()
+            det_vr.AB = 0
+            det_vr.displayName = shortDN # they only differ in ABs
+        else:
+            assert det_vr.AB == 0
+            assert det_vr.displayName == shortDN
+
         if vr["outcome"] == "Correct":
-            det.RC.append(vr_RC)
+            det_vr.RC.append(vr_RC)
         elif vr["outcome"] == "OutOfResource":
-            det.OoR.append(vr_RC)
+            det_vr.OoR.append(vr_RC)
             #assert vr["outcome"] != "Errors", f"{vr["name"]}, rseed={vr_rseed} has error outcome!"
         elif vr["outcome"] == "Errors":
                 #log.info(f"{vr["name"]}, rseed={vr_rseed} has error outcome")
-            det.failures.append(vr_RC)
+            det_vr.failures.append(vr_RC)
         else:
             sys.exit(f"{shortDN}.outcome == {vr["outcome"]}: unknown case!")
 
         vcRs = vr['vcResults']
 
-        #find the filename. The first vcr might have an empty list of assertions (for example in IA mode), so keep trying others.
+        # #find the filename. The first vcr might have an empty list of assertions (for example in IA mode), so keep trying others.
+        # ###filename = None
+        # #JSON_order = []
+        # for vcr in vcRs:
+        #     if filename is None:
+        #         try:
+        #             asst = vcr['assertions'][0]
+        #             filename = asst["filename"] #just for convenience of the log consumer, even though vcRs never have any filename/location
+        #             #loc = f"{asst['line']}:{asst['col']}"
+        #             #break
+        #         except:
+        #             pass
+
+        #     #JSON_order.append(vcr['vcNum'])
+
+        # assert filename is not None
+
+        # det.filename = filename
+        # results[shortDN] = det
+
+        # The vR doesn't have a location. We'll assign it the majoritary filename from the vcRs after we process them.
         filename = None
-        #JSON_order = []
-        for vcr in vcRs:
-            if filename is None:
-                try:
-                    asst = vcr['assertions'][0]
-                    filename = asst["filename"] #just for convenience of the log consumer, even though vcRs never have any filename/location
-                    #loc = f"{asst['line']}:{asst['col']}"
-                    #break
-                except:
-                    pass
 
-            #JSON_order.append(vcr['vcNum'])
-
-        assert filename is not None
-
-        # Disabled because It's very common for the JSON order to not be the vcNum order if cores>1.
-        #
-        #sorted_JSON_order = sorted(JSON_order)
-        #if JSON_order != sorted_JSON_order:
-        #    log.warn(f"{shortDN} had unsorted ABs: {JSON_order}")
-
-        det.filename = filename
-        #det.loc = loc
-        results[shortDN] = det
-
-        # TODO vcRs are not sorted in the logs. But they need to be so that we can skip after a failed one. But, what is their real order? the vcNum one, or the JSON log one? asked in #5862
-        # assuming here that the vcNum order is the verification order
+        # vcRs are not sorted in the logs. But we need them sorted so that we can skip after a failed one. But, what is their real order? the vcNum one, or the JSON log one? asked in #5862
+        # assuming here that the vcNum order is the verification order. Checked with an assert further down.
         vcRs = sorted(vcRs, key=lambda vcR:vcR['vcNum'])
 
-        # The vR is done. Let's do now
         # We will check that the vr's RC equals the sum of the vcrs' RCs.
         vcrs_RC = []
 
         ABmax = max([vcr['vcNum'] for vcr in vcRs])
         ABdigits = floor(log10(ABmax)+1) # e.g. log10(99) = 1.x, needs 2 digits
         
-        skipping_reason = None
+        skipping_reason : SkippingReasons = SkippingReasons.NONE
+        #reminder: in standard mode there's only 1 vcR per vR
         for vcr in vcRs:
             assert vr_rseed == vcr["randomSeed"], f"rseed mismatch: {vr_rseed} vs {vcr["randomSeed"]} in {shortDN}"
 
-            # There's multiple ABs. Each AB contains a single assertion
             ABn = vcr['vcNum']
             display_name_AB: str =f"{shortDN} AB{ABn:0{ABdigits}}"
 
-            if skipping_reason is not None:
+            if skipping_reason != SkippingReasons.NONE:
                 # why skip instead of keeping all the information for the log consumer?
                 # because we're summarizing for the consumer,
                 # so the skipped information must be kept apart from the reliable results.
-                if skipping_reason=="Fail":
+                if skipping_reason == SkippingReasons.FAIL:
                     # after an AB fails, the situation should be equivalent to "assume False && assert X", so it should always be "valid" - but useless!
                     # So confirm that everything after a "Fail" is "Valid", even though we'll ignore it
+                    # If this failed, it'd invalidate the assumption that vcNum order is the verification order (#5862)
                     assert vcr["outcome"] == "Valid", f"Skipping after an AB failed, yet {display_name_AB}=={vcr["outcome"]}"
                 continue
 
             det = results.get(display_name_AB)
             if det is None:
+                #first appearance of this display_name_AB, so we'll be initializing the details
                 det = Details()
                 det.AB = ABn
                 det.displayName = shortDN
 
             # Extract the filename, location and descriptions
+            # We don't have a way to know which file was input to Dafny, and different assertions can be located at different files. So we assume that:
+            # * the majority of assertions will point to the "main" file
+            # * the majority file remains constant across ABs in a vR (trivial in standard mode since there's only 1 AB)
             if len(vcr['assertions'])==0:
-                # e.g. every AB1 in IAmode ... until Dafny 4.8?
-                if det.loc == "":
-                    det.filename = filename #assumed, but what else could it be?
-                    det.loc = '-' #adding these "phantom" ABs to the 1st location of the method is rather unfair, since the extra cost happens no matter what is in the line
+                # e.g. every AB1 in IAmode ... until Dafny 4.8 at least
+                if det.loc == "": #first appearance
+                    det.filename = "-"
+                    det.loc = '-'
                     det.description = '-'
                 else:
                     assert det.loc == '-'
             elif len(vcr['assertions'])==1:
-                asst = vcr['assertions'][0]
-                if det.loc == "":
-                    # first appearance
-                    det.filename = asst['filename']
+                if filename is None:
+                    asst = vcr['assertions'][0]
+                    filename = asst['filename']
+                else:
+                    assert filename == asst['filename']
+                if det.loc == "": #first appearance
+                    det.filename = filename
                     det.loc = f"{asst['line']}:{asst['col']}"
                     det.description = asst['description']
                 else:
@@ -236,9 +255,20 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                     assert det.description == asst['description']
             else:
                 # more than 1 assertion. Store the line range.
-                if det.loc == "":
+                # But first we need to find the majoritary filename in the assertions
+                filenames_list = [asst['filename'] for asst in vcr['assertions']]
+                filenames_counter = Counter(filenames_list)
+                filename_maj = filenames_counter.most_common(1)[0][0]
+                if filename is None:
+                    filename = filename_maj
+                else:
+                    assert filename == filename_maj
+
+                if det.loc == "": #first appearance
+                    if len(filenames_counter)>1:
+                        log.info(f"{display_name_AB}\t: storing only majoritary filename in assertions: {filenames_counter}")
                     det.filename = filename
-                    lines = sorted([asst['line'] for asst in vcr['assertions']])
+                    lines = sorted([asst['line'] for asst in vcr['assertions'] if asst["filename"]==filename])
                     lines_str = f"L{lines[0]}"
                     if lines[0]!=lines[-1]:
                         lines_str+=f"-{lines[-1]}"
@@ -247,7 +277,7 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                 else:
                     assert det.description == '*'
 
-            # store the location and the ABs in there to check if they stay consistent
+            # store the ABs per locationlocation and the ABs in there to check if they stay consistent
             location_current = (det.filename, display_name_AB, det.loc)
             l = locations.get(location_current,{})
             l2 = l.get(vr_rseed,{})
@@ -264,13 +294,13 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                 det.OoR.append(vcr_RC)
                 results[display_name_AB] = det
                 log.debug(f"{display_name_AB}==OoR, skipping remaining {ABmax-ABn} ABs in {shortDN}")
-                skipping_reason = "OoR"
+                skipping_reason = SkippingReasons.OOR
             elif vcr["outcome"] == "Invalid":
                 assert vr["outcome"] == "Errors", f"{display_name_AB}==Invalid, {shortDN}=={vr["outcome"]}: unexpected!"
                 det.failures.append(vcr_RC)
                 results[display_name_AB] = det
                 log.debug(f"{display_name_AB}==Invalid, skipping remaining {ABmax-ABn} ABs in {shortDN}")
-                skipping_reason = "Fail"
+                skipping_reason = SkippingReasons.FAIL
             elif vcr["outcome"] == "Valid":
                 det.RC.append(vcr_RC)
                 results[display_name_AB] = det
@@ -278,7 +308,7 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
             else:
                 sys.exit(f"{display_name_AB}.outcome == {vcr["outcome"]}: unexpected!")
 
-        if skipping_reason is None: # we reached the end of this vR without fails
+        if skipping_reason is SkippingReasons.NONE: # we reached the end of this vR without fails
             # ensure that the vR cost was coherent with the ABs' sum
             assert sum(vcrs_RC) == vr_RC, f"{shortDN}.RC={vr_RC}, but the sum of the vcrs' RCs is {sum(vcrs_RC)}"
             # ensure that the vR result was reported valid
@@ -286,6 +316,14 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
         else:
             #log.debug(f"Did not check the sum(vcrs_RC)")
             pass
+
+        # TODO assign to the vr the majoritary filename
+        #assert filename != None
+        if det_vr.filename == "":
+            det_vr.filename = filename
+        else:
+            assert det_vr.filename == filename
+        results[shortDN] = det_vr
         
     if paranoid:
         # the extra checks are actually cheap
@@ -296,6 +334,8 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
     log.info(f"Iteration costs: {cost_min} to {cost_max}")
 
     return results #,iteration_costs
+
+
 
 
 
