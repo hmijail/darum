@@ -217,6 +217,12 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                     # So confirm that everything after a "Fail" is "Valid", even though we'll ignore it
                     # If this failed, it'd invalidate the assumption that vcNum order is the verification order (#5862)
                     assert vcr["outcome"] == "Valid", f"Skipping after an AB failed, yet {display_name_AB}=={vcr["outcome"]}"
+                elif skipping_reason == SkippingReasons.OOR:
+                    if vcr["outcome"] != "Valid":
+                        log.info(f"While skipping after an OoR: {display_name_AB} failed, so the OoR should turn out valid?")
+                        # would be interesting to keep track of this result and confirm:
+                        # * whether the OoR turns out valid
+                        # * whether this vcr stays failed.
                 continue
 
             det = results.get(display_name_AB)
@@ -231,21 +237,25 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
             # * the majority of assertions will point to the "main" file
             # * the majority file remains constant across ABs in a vR (trivial in standard mode since there's only 1 AB)
             if len(vcr['assertions'])==0:
-                # e.g. every AB1 in IAmode ... until Dafny 4.8 at least
+                # only seems to happen in each AB1 in IAmode ... until Dafny 4.8 at least
+                assert ABn == 1 # no way to know if we're in IAmode (or "close enough" to that )
                 if det.loc == "": #first appearance
                     det.filename = "-"
                     det.loc = '-'
                     det.description = '-'
+                    log.debug(f"{display_name_AB}\t: zero assertions. To be expected in IAmode.")
                 else:
                     assert det.loc == '-'
+
             elif len(vcr['assertions'])==1:
+                asst = vcr['assertions'][0]
                 if filename is None:
-                    asst = vcr['assertions'][0]
                     filename = asst['filename']
                 else:
-                    assert filename == asst['filename']
+                    if filename != asst['filename']:
+                        log.info(f"{display_name_AB}\t: location={asst['filename']}:{asst['line']}:{asst['col']}, though we assumed filename={filename}")
                 if det.loc == "": #first appearance
-                    det.filename = filename
+                    det.filename = asst['filename']
                     det.loc = f"{asst['line']}:{asst['col']}"
                     det.description = asst['description']
                 else:
@@ -255,7 +265,8 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                     assert det.description == asst['description']
             else:
                 # more than 1 assertion. Store the line range.
-                # But first we need to find the majoritary filename in the assertions
+                # But first we need to find the majoritary filename in the assertions,
+                # so that we can ignore the rest in the calculation of the range of line numbers
                 filenames_list = [asst['filename'] for asst in vcr['assertions']]
                 filenames_counter = Counter(filenames_list)
                 filename_maj = filenames_counter.most_common(1)[0][0]
@@ -275,7 +286,7 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                     det.loc=lines_str
                     det.description = '*'
                 else:
-                    assert det.description == '*'
+                    assert det.filename == filename
 
             # store the ABs per locationlocation and the ABs in there to check if they stay consistent
             location_current = (det.filename, display_name_AB, det.loc)
@@ -293,7 +304,8 @@ def readJSON(fullpath: str, paranoid=True) -> resultsType: #tuple[resultsType,di
                 assert vr["outcome"] == "OutOfResource", f"{display_name_AB}==OoR, {shortDN}=={vr["outcome"]}: unexpected!"
                 det.OoR.append(vcr_RC)
                 results[display_name_AB] = det
-                log.debug(f"{display_name_AB}==OoR, skipping remaining {ABmax-ABn} ABs in {shortDN}")
+                if ABmax-ABn >0:
+                    log.debug(f"{display_name_AB}==OoR, skipping remaining {ABmax-ABn} ABs in {shortDN}")
                 skipping_reason = SkippingReasons.OOR
             elif vcr["outcome"] == "Invalid":
                 assert vr["outcome"] == "Errors", f"{display_name_AB}==Invalid, {shortDN}=={vr["outcome"]}: unexpected!"
@@ -356,7 +368,7 @@ def readLogs(paths, read_pickle = False, write_pickle = False) -> resultsType:
 
         for p in paths:
             # os.walk doesn't accept files, only dirs; so we need to process single files separately
-            log.debug(f"root {p}")
+            #log.debug(f"root {p}")
             if os.path.isfile(p):
                 ext = os.path.splitext(p)[1]
                 if ext == ".json":
@@ -391,7 +403,7 @@ def readLogs(paths, read_pickle = False, write_pickle = False) -> resultsType:
                 exit(1)
 
 
-        log.info(f"Processed {files} files in {(dt.now()-t0)/td(seconds=1)}")
+        log.info(f"Processed {files} files in {(dt.now()-t0)/td(seconds=1)} sec")
 
         if write_pickle:
             with open(picklefilepath, "wb") as pf:

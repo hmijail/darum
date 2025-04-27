@@ -20,24 +20,24 @@ from quantiphy import Quantity
 from typing import NoReturn
 from sh import Command
 from functools import partial
-
+import webbrowser
 #from darum import plot_distribution
 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run dafny's measure-complexity and store the verification args in the filename of the resulting log file for easier bookkeeping.")
+    parser = argparse.ArgumentParser(description="Run dafny's measure-complexity, and store the log with additional context and bookeeping information.")
     parser.add_argument("dafnyfiles", nargs="+", help="The dafny file(s) to verify.")
     parser.add_argument("-e", "--extra_args", default="", help="A quoted string of extra arguments to pass to dafny")
     parser.add_argument("-d", "--dafnyexec", default="dafny", help="The dafny executable")
-    parser.add_argument("-r", "--rseed", default=str(int(time.time())),help="The random seed. By default is seeded with the current time.")
-    parser.add_argument("-i", "--mut", default="10", help="Number of mutations. Default=%(default)s")
+    parser.add_argument("-r", "--rseed", default=None, help="The random seed. By default is seeded with the current time.")
+    parser.add_argument("-m", "--mut", default="10", help="Number of mutations. Default=%(default)s")
     parser.add_argument("-f", "--format", default="json", help=argparse.SUPPRESS) # CVS needs updating
     parser.add_argument("-s", "--filter-symbol", help="Only verify symbols containing this substring.")
     parser.add_argument("-l", "--limitRC", type=Quantity, default=Quantity("10M"), help="The Resource Count limit. Accepts magnitudes (K,M,G...). Default=%(default)s")
-    parser.add_argument("-a", "--isolate-assertions",action="store_true")
+    parser.add_argument("-i", "--isolate-assertions",action="store_true")
     parser.add_argument("-c", "--verify-included-files",action="store_true", help="Verify included files")
-    parser.add_argument("-z", "--z3-path", help="Path to Z3")
+    parser.add_argument("-z", "--z3-path", help="Dafny's ""solver-path"" argument")
     parser.add_argument("-o", "--output_dir", default="darum", help="Directory to store the results. Default=%(default)s")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Use multiple times to increase verbosity")
     parser.add_argument("--stop",action="store_true", help="Do not call plot_distribution after verification")
@@ -59,6 +59,7 @@ def main():
     IAstr = "_IA" if args.isolate_assertions else ""
     VIFstr = "_VIF" if args.verify_included_files else ""
     dafnyfiles_str = ""
+    rseed = str(int(time.time())) if args.rseed is None else args.rseed
     source_dict  = {}
     for df in args.dafnyfiles:
         dfbase = os.path.basename(df)
@@ -82,12 +83,14 @@ def main():
         dfcopy = os.path.join(args.output_dir,filenamehash)
         if not os.path.exists(dfcopy):
             shutil.copy2(df,dfcopy)
-    z3str = f"_Z{Path(args.z3_path).name}" if args.z3_path else ""
-    symbol = f"_s{args.filter_symbol}" if args.filter_symbol else ""
-    dafnyexec= os.path.basename(args.dafnyexec)
-    argstring4filename = f"{dafnyexec}{dafnyfiles_str}_M{args.mut}_L{args.limitRC}{IAstr}{VIFstr}{z3str}{symbol}_{args.extra_args}".replace("/","").replace("-","").replace(":","").replace(" ","")
+    z3_str = f"_{Path(args.z3_path).name}" if args.z3_path else ""
+    symbol_str = f"_s{args.filter_symbol}" if args.filter_symbol else ""
+    dafnyexec_str= os.path.basename(args.dafnyexec) if args.dafnyexec != "dafny" else ""
+    rseed_str = f"_r{args.rseed}" if args.rseed else ""
+    extra_args_str = f"_E{args.extra_args}" if args.extra_args else ""
+    argstring4filename = f"{dafnyexec_str}{dafnyfiles_str}_M{args.mut}_L{args.limitRC}{rseed_str}{IAstr}{VIFstr}{z3_str}{symbol_str}{extra_args_str}".replace("/","").replace("-","").replace(":","").replace(" ","")
     nowstr = dt.now().strftime('%m%d-%H%M%S')
-    logfilename = os.path.join(args.output_dir, nowstr + "_" + argstring4filename)
+    logfilename = os.path.join(args.output_dir, nowstr + argstring4filename)
     # for convenience, take another snapshot of each single-input-file with the same full filename as the log
     # if len(args.dafnyfiles)==1:
     #     df= args.dafnyfiles[0]
@@ -99,7 +102,7 @@ def main():
     arglist = [
         # args.dafnyexec,
         "measure-complexity",
-        "--random-seed", args.rseed,
+        "--random-seed", rseed,
         "--mutations", args.mut,
         "--log-format", f"{args.format};LogFileName={logfilename}.{args.format}",
         "--resource-limit", str(int(args.limitRC)),
@@ -127,19 +130,33 @@ def main():
         nonlocal mutation_tstamp
         nonlocal mutation_times
         nonlocal output_last_tstamp
+        nonlocal counter_error
+        nonlocal counter_success
+        nonlocal state_error
+        nonlocal delta_min_last
         now = dt.now()
+
         if "Starting verification of mutation" in line or "The total consumed resources are" in line:
             if mutation_tstamp is not None:
                 delta = int((now - mutation_tstamp).total_seconds())
-                l = f"DARUM:mutation took {delta} s.\n"
+                if state_error:
+                    counter_error +=1
+                else:
+                    counter_success += 1
+                state_error = False
+                l = f"DARUM: mutation took {delta} sec.\t{counter_success} successes, {counter_error} errors\n"
                 print(l, end=None)
                 store.append(l)
                 mutation_times.append(delta)
             mutation_tstamp = now
+
+        if "Error" in line:
+            state_error = True
         prefix = f'{dt.now().strftime('%H:%M:%S')}: ' if args.verbose>2 else ""
         stream.write(prefix + line)
         store.append(line)
         output_last_tstamp = now
+        delta_min_last = 0
 
     stdout_lines = []
     # stderr = []
@@ -149,6 +166,9 @@ def main():
     mutation_tstamp = None
     mutation_times = []
     output_last_tstamp = dt.now()
+    counter_error = 0
+    counter_success = 0
+    state_error = False
     dafny_proc = dafny(arglist,_out=partial(process_output, sys.stdout, stdout_lines), _bg=True, _err_to_out=True, _ok_code=[0,1,2,3,4],_return_cmd=True, _new_session=True)
     # p = sp.Popen(arglist, bufsize=-1, stdout=sp.PIPE, stderr=sp.PIPE, text=True, process_group=0)
     # os.set_blocking(p.stdout.fileno(), False)
@@ -157,6 +177,7 @@ def main():
     logger.debug(f"{pgid=}")
 
     procs_old = []
+    delta_min_last = 0
     while dafny_proc.is_alive():
         procs = []
         for proc in psutil.process_iter(['pid', 'name']):
@@ -170,8 +191,9 @@ def main():
             logger.info(f"""Child procs: {[f"{proc.info['pid']}({proc.info['name']})" for proc in procs]}""" )
             procs_old = procs
         delta = int((dt.now() - output_last_tstamp).total_seconds())
-        if delta > 1 and delta % 60 == 0 :
-            l = f"DARUM: no output for {delta/60} minutes..."
+        if delta // 60 > delta_min_last:
+            delta_min_last = delta // 60
+            l = f"DARUM: no dafny output for {delta_min_last} minutes..."
             print(l)
             stdout_lines.append(l)
         time.sleep(1)
@@ -241,6 +263,8 @@ def main():
         *(["--limitRC", str(args.limitRC)] if args.limitRC is not None else []),
     ]
 
-    print(f"DARUM: running ",pd(pd_args,_err_to_out=True))
+    print(f"DARUM: continuing to `plot_distribution {' '.join(pd_args)}`")
+    #print(pd(pd_args,_err_to_out=True))     #alternatives: _fg=True? or redirect _in=sys.stdin, ...
+    pd(pd_args,_fg=True)
 
-    return exit_code
+    return exit_code #from dafny, not from the plot!

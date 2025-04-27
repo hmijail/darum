@@ -4,8 +4,11 @@ A set of tools to detect and help diagnose brittle verification.
 
 *Darum? Ach, warum!*
 
-## What problem does Darum tackle?
+## What does Darum do? 
 
+It analyzes Dafny's verification costs to find brittleness and helps the user diagnose it.
+
+## Brittleness?
 Dafny verifies code by translating it internally into assertions, that then are verified by the Z3 solver.
 
 For a long time, the common advice to help Dafny code verify successfully was to add context information to the code through manual assertions, so that Z3 would have enough information to find a solution. This works well for small projects. However, the solver can eventually have too much information and get lost following unproductive rabbitholes while searching for a solution. This causes long verification times or timeouts, which bogs down development. Worse, the verification of Dafny code depends on a measure of randomness, which causes Z3 to follow changing paths when searching for proofs, even for semantically unchanged Dafny code. This causes variability in verification times, possibly spanning multiple orders of magnitude. This is known as "verification brittleness".
@@ -58,7 +61,7 @@ Each of the tools has a `--help` argument that lists the available options.
 
 In general, the workflow will be:
 1. Run `dafny_measure`
-2. Plot the logfile with `plot_distribution`
+2. Plot the logfile with `plot_distribution` (happens automatically when running `dafny_measure`)
 3. If some member looks interesting/suspicious, run `dafny_measure` again in IA mode, possibly with `--filter-symbol` to focus only on that member
 4. Plot the new logfile with `plot_distribution`
 5. And/or compare both logfiles with `compare_distribution`.
@@ -82,14 +85,14 @@ For further details about how Darum works and usage strategies, please see the f
 
 #### How many iterations to run with `dafny_measure`? (`-i` argument)
 
-The default is 10. In practice, 5-10 iterations seem to work well. Bigger numbers (100 iterations or more) might be interesting to get more detail on how the distribution really looks like in badly behaved code: what are its modes, and how extreme it can get.
+The default is 10, which in practice seem to work well. Bigger numbers (100 iterations or more) might be interesting to get more detail on how the distribution really looks like in badly behaved code: what are its modes, and how extreme it can get.
 
 Note that a higher number of iterations can trigger bugs in Dafny, and fail midway without producing a log (Dafny issue [#5316](https://github.com/dafny-lang/dafny/issues/5316)). Plan accordingly.
 To work around this, there's some functionality in Darum to analyze multiple small logfiles, which can be more reliable than trying to generate a big logfile at once. (Darum issue [#1](https://github.com/hmijail/darum/issues/1))
 
 ## Interpreting the results
 
-
+Take a look at the [walkthrough](docs/Walkthrough.md)
 
 ### The plots
 
@@ -103,11 +106,11 @@ Badly behaving members seem to blow up their span rather abruptly, so probably a
 
 ABs are scored according to their characteristics, including the fact that a non-successful AB makes subsequent ABs in the same member unreliable.
 
-The top N ABs are plotted. For plots with failures/OoRs, the corresponding bar is wider to highlight those failures.
+The top N ABs are plotted. For plots with failures/OoRs, these are plotted aside for attention.
 
 The plot starts in transparent mode to make it easier to see where bars overlap. Clicking on the legend makes the corresponding plot easier to see.
 
-Verification results that happen rarely are specially important. Hence, the Y axis is logarithmic to better show single, rare results.
+Verification results that happen rarely are specially important. Hence, the Y axis is logarithmic to better show those single, rare results.
 
 
 #### Comparative plots
@@ -147,7 +150,7 @@ If interesting/atypical situations were detected while preparing the plots, they
 
 ### Start in standard mode, dig into IA mode once a problem is apparent
 
-As mentioned, a member can verify stably in default mode, but in IA mode present ABs that are brittle or even fail. The significance of this situation is unclear (XXX), therefore:
+As mentioned, a member can verify stably in default mode, but in IA mode present ABs that are brittle or even fail. The significance of this situation is still unclear, therefore:
 1. Probably there's no immediate harm in leaving the member as it is. However, you might still want to keep an eye on it in case that any small change in the member triggers brittleness.
 2. More importantly, It's probably best to **focus on fixing problems that can be first be found at the member level with standard verification mode**. On the contrary, starting by looking for problems at the IA mode might cause you to spend effort on trouble that maybe isn't really there. Dafny's `--filter-symbol` is a great way to avoid the temptation of fishing for unnecessary trouble in IA mode.
 
@@ -163,14 +166,18 @@ Since version 4.4, Dafny includes a standard library that provides pre-verified 
 
 ### Section on Verification debugging in Ref Manual
 
-Link XXX, plus extra docs?
+See [here](https://dafny.org/dafny/DafnyRef/DafnyRef.html#sec-brittle-verification).
 
 
 # Hacking
 
-Clone the repo to your system and install it in editable mode with pipx.
+Clone the repo to your system and install it in editable mode with pipx, poetry or similar tools.
 
 ```
 cd darum
 pipx install -e .
 ```
+
+DARUM's plots use HoloViz, a Python library that configures and deploys Javascript libraries into a standalone, interactive HTML page. This complexity combined with Python's own packaging complexities mean that if you try to run DARUM's scripts directly, the generated HTML pages will fail to work.
+
+Hence, **remember to use the user-facing scripts installed by tools like pipx and poetry instead**.

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from bokeh.models import NumeralTickFormatter, HoverTool
 from bokeh.util.compiler import TypeScript
-from bokeh.models.widgets.tables import NumberFormatter
+from bokeh.models.widgets.tables import NumberFormatter, ScientificFormatter
 
 
 def smag(i) -> str:
@@ -28,26 +28,27 @@ def dn_is_excluded(dn, exclude_list):
     return False
 
 def row_from_Details(v: Details):
-    minRC_entry = min(v.RC, default=0)
+    minRC_entry = min(v.RC, default=inf)
 #    minRC = min(minRC, minRC_entry)
-    maxRC_entry = max(v.RC, default=0)
+    maxRC_entry = max(v.RC, default=-inf)
 #    maxRC = max(maxRC, maxRC_entry)
-    # minOoR_entry = min(v.OoR, default=0)
+    minOoR_entry = min(v.OoR, default=inf)
 #    minOoR = min(minOoR,minOoR_entry)
     # minFailures_entry = min(v.failures, default=0)
 #    minFailures = min(minFailures,minFailures_entry)
 
     #comment = ""
 
-    # Calculate the % span between max and min
-    span = (maxRC_entry-minRC_entry)/minRC_entry if minRC_entry != 0 else 0
-    # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {span:>8.2%}"
+    # Calculate the slowdown
+    maxCost_entry = maxRC_entry if len(v.OoR)==0 else minOoR_entry
+    slowdown = maxCost_entry/minRC_entry #if minRC_entry != 0 else 0
+    # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {slowdown:>8.2%}"
     # log.debug(info)
     return {
         "success": len(v.RC),
         "minRC" : minRC_entry,
         "maxRC" : maxRC_entry,
-        "span" : span,
+        "slowdown" : slowdown,
         "OoR" : len(v.OoR),
         "fail" : len(v.failures),
         "AB" : v.AB,
@@ -104,13 +105,14 @@ def main() -> None:
     # parser.add_argument("-a", "--IAmode", default=False, action='store_true', help="Isolated Assertions mode. Used only for sanity checking.")
     parser.add_argument("-l", "--limitRC", type=Quantity, default=None, help="The RC limit used during verification. Used only for sanity checking.")
     # parser.add_argument("-b", "--bspan", type=int, default=0, help="The minimum bin span for a histogram to be plotted")
+    parser.add_argument("-o", "--output_dir", default="darum", help="Directory to store the results. Default=%(default)s")
 
     args = parser.parse_args()
 
     numeric_level = log.WARNING - args.verbose * 10
     log.basicConfig(level=numeric_level,format='%(asctime)s-%(levelname)s:%(message)s',datefmt='%H:%M:%S')
 
-    product = Path(args.path_normal[0]).name
+    title = Path(args.path_normal[0]).name + "  +  " + Path(args.path_IA[0]).name
 
     log.debug(f"logs_normal={args.path_normal}")
     results_normal = readLogs(args.path_normal)#, args.recreate_pickle)
@@ -121,7 +123,7 @@ def main() -> None:
 
     ABs_present = False
     vr_past_limitRC = ""
-    df_IA = pd.DataFrame( columns=["minRC", "maxRC", "span", "success", "OoR","fail","AB"])
+    df_IA = pd.DataFrame( columns=["minRC", "maxRC", "slowdown", "success", "OoR","fail","AB"])
     df_IA.index.name="Element"
 
     for k,v in results_IA.items():
@@ -135,7 +137,7 @@ def main() -> None:
     assert ABs_present
 
     df_IA.drop(columns=["AB"],inplace=True)
-    df_IA["score"] = df_IA["span"] * df_IA["minRC"]
+    #df_IA["score"] = df_IA["maxRC"] - df_IA["minRC"]
     # df_IA = df_IA.sort_values(["failures","OoRs","score"], ascending=False,kind='stable')
     # df_IA.reset_index(inplace=True)
     # df_IA['Element_ordered'] = [f"{i} {s}" for i,s in zip(df_IA.index,df_IA["Element"])]
@@ -144,7 +146,7 @@ def main() -> None:
     renamer = {c:c_IA for c, c_IA in zip(colnames, colnames_IA)}
     df_IA.rename(columns=renamer, inplace=True)
 
-    df = pd.DataFrame( columns=["minRC", "maxRC", "span", "success", "OoR","fail","AB"])
+    df = pd.DataFrame( columns=["minRC", "maxRC", "slowdown", "success", "OoR","fail","AB"])
     df.index.name="Element"
     for k,v in results_normal.items():
         if v.AB!=0:
@@ -154,11 +156,16 @@ def main() -> None:
             continue
         df.loc[k] = row_from_Details(v)
     df.drop(columns=["AB"], inplace=True)
-    df["score"] = df["span"] * df["minRC"]
-    df = df.sort_values(["fail","OoR","score"], ascending=False,kind='stable')
-    dfc =pd.concat([df, df_IA], axis=1)
 
+    dfc =pd.concat([df, df_IA], axis=1)
     df = dfc
+
+    AB_boost_factor = 1
+    # It might make sense to boost them if we hope that to provide advance warning of trouble.
+    # But without a clear reason, given that what we want is to pay attention to brittle verification # in normal mode, then better not to boost.
+    df["score"] = df["maxRC"] - df["minRC"] + AB_boost_factor*(df_IA["maxRC IA"] - df_IA["minRC IA"])
+    df.loc[~np.isfinite(df.score),"score"] = nan
+    df = df.sort_values(["fail", "fail IA", "OoR", "OoR IA","score"], ascending=False,kind='stable')
     df.reset_index(inplace=True)
     df['Element_ordered'] = [f"{i} {s}" for i,s in zip(df.index,df["Element"])]
 
@@ -168,7 +175,7 @@ def main() -> None:
     RCOoR = maxRC * 1.4
     RCmargin2 = maxRC * 1.6
     RCfailure = maxRC * 1.8
-    sep = 1.01 #separation between spikes/markers faked into the OoR/fail areas
+    sep = 1.001 #separation between spikes/markers faked into the OoR/fail areas
 
 
 
@@ -327,22 +334,24 @@ def main() -> None:
     # TABLE
 
     df.drop(columns=["Element_ordered"], inplace=True)
-    df["span"] = df["span"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
-    df["span IA"] = df["span IA"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
-    df["minRC"] = df["minRC"].apply(lambda x: x if abs(x)<inf else "-")
-    df["minRC IA"] = df["minRC IA"].apply(lambda x: x if abs(x)<inf else "-")
-    df["maxRC"] = df["maxRC"].apply(lambda x: x if abs(x)<inf else "-")
-    df["maxRC IA"] = df["maxRC IA"].apply(lambda x: x if abs(x)<inf else "-")
-    df["success"] = df["success"].apply(lambda x: x if x!=0 else "-")
-    df["success IA"] = df["success IA"].apply(lambda x: x if x!=0 else "-")
-    df["OoR"] = df["OoR"].apply(lambda x: x if x!=0 else "-")
-    df["OoR IA"] = df["OoR IA"].apply(lambda x: x if x!=0 else "-")
-    df["fail"] = df["fail"].apply(lambda x: x if x!=0 else "-")
-    df["fail IA"] = df["fail IA"].apply(lambda x: x if x!=0 else "-")
+    #df["slowdown"] = df["slowdown"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
+    #df["slowdown IA"] = df["slowdown IA"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
+    df["minRC"] = df["minRC"].apply(lambda x: x if abs(x)<inf else nan)
+    df["minRC IA"] = df["minRC IA"].apply(lambda x: x if abs(x)<inf else nan)
+    df["maxRC"] = df["maxRC"].apply(lambda x: x if abs(x)<inf else nan)
+    df["maxRC IA"] = df["maxRC IA"].apply(lambda x: x if abs(x)<inf else nan)
+    df["success"] = df["success"].apply(lambda x: x if x!=0 else nan)
+    df["success IA"] = df["success IA"].apply(lambda x: x if x!=0 else nan)
+    df["OoR"] = df["OoR"].apply(lambda x: x if x!=0 else nan)
+    df["OoR IA"] = df["OoR IA"].apply(lambda x: x if x!=0 else nan)
+    df["fail"] = df["fail"].apply(lambda x: x if x!=0 else nan)
+    df["fail IA"] = df["fail IA"].apply(lambda x: x if x!=0 else nan)
 
     df.rename(columns={
-            "span":"RCspan%",
-            "span IA":"RCspan% IA",
+            "slowdown":"slowd",
+            "slowdown IA":"slowd IA",
+            "success": "succs",
+            "success IA": "succ IA"
         },inplace=True)
 
     print(df)
@@ -350,15 +359,15 @@ def main() -> None:
     bokeh_formatters = {
         'minRC': NumberFormatter(format='0,0', text_align = 'right'),
         'maxRC': NumberFormatter(format='0,0', text_align = 'right'),
-        # 'RCspan%': NumberFormatter(format='0.00', text_align = 'right'),
+        'slowd': NumberFormatter(format='0.0000', text_align = 'right'),
         'score': NumberFormatter(format='0,0', text_align = 'right'),
-        'success': NumberFormatter(format='0,0', text_align = 'right'),
+        'succs': NumberFormatter(format='0', text_align = 'right'),
         'fail': NumberFormatter(format='0,0', text_align = 'right'),
         'OoR': NumberFormatter(format='0,0', text_align = 'right'),
     }
     bf_keys = list(bokeh_formatters.keys())
     for k in bf_keys:
-        bokeh_formatters[k+" IA"]=NumberFormatter(format='0,0', text_align = 'right')
+        bokeh_formatters[k+" IA"]=bokeh_formatters[k]
 
     table = pn.widgets.Tabulator(df,
             pagination=None,
@@ -376,7 +385,7 @@ def main() -> None:
     hvplot = scatter * spikes * vspan
     # hvplot.cols(1)
 
-    mf = NumericalTickFormatterWithLimit(RCmargin1, RCfailure, format="0.0a")
+    mf = NumericalTickFormatterWithLimit(RCmargin1, RCmargin2, format="0.0a")
 
     hvplot.opts(
     #     #opts.Histogram(responsive=True, height=500, width=1000),
@@ -391,7 +400,7 @@ def main() -> None:
             )
     )
 
-    pane_title = pn.pane.Markdown(f"# {product}")
+    pane_title = pn.pane.Markdown(f"# Log files: {title}")
     table_title = pn.pane.Markdown(f"## Comparison normal mode vs IA mode")
     plot = pn.Column(pane_title, hvplot, table_title, table)
 
@@ -402,15 +411,15 @@ def main() -> None:
 
     # fig.xaxis.bounds = (0,bin_fails)
 
-    #title = "".join(args.paths)
-    plotfilepath = product+".html"
+    title = title.replace(".json","").replace(" ", "")
+    plotfilepath: str = os.path.join(args.output_dir, title+".html")
 
     try:
         os.remove(plotfilepath)
     except:
         pass
 
-    plot.save(plotfilepath)#, title=title)
+    plot.save(plotfilepath, title=title)
 
 
     print(f"Created file {plotfilepath}")

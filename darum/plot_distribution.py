@@ -4,9 +4,11 @@ import argparse
 import json
 import math
 import re
+from socket import timeout
 import sys
 from typing import Any
 from unicodedata import numeric
+import webbrowser
 # from matplotlib import table
 from quantiphy import Quantity
 import logging
@@ -30,12 +32,18 @@ import panel as pn
 from bokeh.models.widgets.tables import NumberFormatter, BooleanFormatter
 from ansi2html import Ansi2HTMLConverter
 
+log = logging.getLogger(__name__)
+
+
+
 def smag(i) -> str:
     return f"{Quantity(i):.3}"
 
 def dn_is_excluded(dn, exclude_list):
     for e in exclude_list:
-        if e.lower() in dn.lower():
+        regex = re.compile(e)
+        if regex.search(dn):
+            log.debug(f"Excluding {dn}")
             return True
     return False
 
@@ -50,7 +58,7 @@ class NumericalTickFormatterWithLimit(NumeralTickFormatter):
             print("The generated webpage will only work if this tool is run from its installed script - not the .py file in the package!")
             # This is because of how Bokeh includes these strings in the webpage. There's a "require(custom/XXXnumerical...)" that seems to catch the module name, 
             # and in the "static __name__" definition further down we need to get it the same.
-            # This happens when using the scripts installed by e.g. poetry or pipx.
+            # This works correctly when using the scripts installed by e.g. poetry or pipx.
         NumericalTickFormatterWithLimit.fail_min = fail_min
         NumericalTickFormatterWithLimit.__implementation__ = TypeScript(
 """
@@ -207,13 +215,13 @@ def main() -> int:
     parser.add_argument("-p", "--recreate-pickle",action="store_true", help=argparse.SUPPRESS) #unmaintained
     parser.add_argument("-n", "--nbins", default=50)
     #parser.add_argument("-d", "--RCspan", type=int, default=10, help="The span maxRC-minRC (as a % of max) over which a plot is considered interesting")
-    parser.add_argument("-x", "--exclude", action='append', default=[], help="DisplayNames matched by this regex will be excluded from plot")
+    parser.add_argument("-x", "--exclude", action='append', default=[], help="DisplayNames matched by this regex will be excluded from the plot")
     parser.add_argument("-o", "--output_dir", default="darum", help="Directory to store the results. Default=%(default)s")
     parser.add_argument("-t", "--top", type=int, default=5, help="Plot only the top N most interesting. Default: %(default)s")
     parser.add_argument("--stop", default=False, action='store_true', help="Generate the HTML file but do not open it.")
     parser.add_argument("-s", "--force-standard-mode", default=False, action='store_true', help="Treat Assertion Batches just like members. Default: autodetect")
-    parser.add_argument("-a", "--force-IA-mode", default=False, action='store_true', help="Whether to separate Assertion Batches and focus on them, instead of members. Best for Isolated Assertions mode. Default: autodetect")
-    parser.add_argument("-l", "--limitRC", type=Quantity, default=None, help="The RC limit that was used during verification. Used only to check consistency of results. Default: %(default)s")
+    parser.add_argument("-i", "--force-IA-mode", default=False, action='store_true', help="Whether to separate Assertion Batches and focus on them, instead of members. Best for Isolated Assertions mode. Default: autodetect")
+    parser.add_argument("-l", "--limitRC", type=Quantity, default=None, help=argparse.SUPPRESS) #help="The RC limit that was used during verification. Used only to check consistency of results. Default: %(default)s")
     parser.add_argument("-b", "--bspan", type=int, default=0, help="A function's histogram will only be plotted if it spans => BSPAN bins. Default: %(default)s")
 
     args = parser.parse_args()
@@ -221,7 +229,6 @@ def main() -> int:
 
 def plot(args) -> int:
     logging.basicConfig() #level=numeric_level,format='%(levelname)s:%(message)s')
-    log = logging.getLogger(__name__)
     numeric_level = max(logging.DEBUG, logging.WARNING - args.verbose * 10)
     log.setLevel(numeric_level)
     logging.getLogger("darum.log_readers").setLevel(numeric_level)
@@ -248,8 +255,23 @@ def plot(args) -> int:
         sourcecode[fname] = fdata['contents'].splitlines()
         log.debug(f"Found source for '{fname}'")
 
+    dafny_cmdline: list = darum_context["cmd"]
+    try:
+        lrc_index = dafny_cmdline.index("--resource-limit")
+        args.limitRC = Quantity(dafny_cmdline[lrc_index+1])
+        log.debug(f"{args.limitRC=} found in logfile ")
+    except:
+        pass
+    IAmode_in_log = "--isolate-assertions" in dafny_cmdline
+    if IAmode_in_log:
+        log.debug(f"IAmode setting found in logfile")
+
+
     # PROCESS THE DATA
     comment_box = ""
+    if args.limitRC is not None:
+        comment_box += f"* LimitRC = {args.limitRC}\n"
+
     # Calculate the max-min span for each DisplayName, and the global maxRC, minRC, minFail
     maxRC = -inf
     minRC = inf
@@ -258,7 +280,7 @@ def plot(args) -> int:
     minOoR = inf # min RC of the OoR entries
     minFailures = inf # min RC of the failed entries
     maxFailures = -inf # max RC of the failed entries
-    df = pd.DataFrame( columns=["minRC", "maxRC", "span", "success", "OoR","fail","fail_extr","AB","loc_html","loc_txt","diag","displayName", "desc", "src"])
+    df = pd.DataFrame( columns=["minRC", "maxRC", "slowdown", "success", "OoR","fail","fail_extr","AB","loc_html","loc_txt","diag","displayName", "desc", "src"])
     df.index.name="element"
 
 
@@ -292,7 +314,7 @@ def plot(args) -> int:
     
         diag = ""
 
-        # if a limit was given, we can do some fine grained checks
+        # if a limit was given, we can do some fine-grained sanity checks
         if args.limitRC is not None and v.AB>0:
             # any RC > limitRC should be in the OoRs, not in the RCs
             # but beware, in IAmode, the vRs' RC is the sum of its ABs, so they can legitimately have RCs > limitRC
@@ -301,8 +323,9 @@ def plot(args) -> int:
             if minOoR_entry < args.limitRC:
                 log.warning(f"MinOoR for {k} is {min(v.OoR)}, should be > LimitRC={args.limitRC}")
 
-        # Calculate the % span between max and min
-        span = (maxRC_entry-minRC_entry)/minRC_entry
+        # Calculate the span between max and min
+        maxCost_entry = maxRC_entry if len(v.OoR)==0 else minOoR_entry
+        slowdown = maxCost_entry/minRC_entry # slowdown
         # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {span:>8.2%}"
         # log.debug(info)
         fail_extremes = "" if minFailures_entry == inf else f"{smag(minFailures_entry)} - {smag(maxFailures_entry)}"
@@ -333,7 +356,7 @@ def plot(args) -> int:
             "success": len(v.RC),
             "minRC" : minRC_entry,
             "maxRC" : maxRC_entry,
-            "span" : span,
+            "slowdown" : slowdown,
             "OoR" : len(v.OoR),
             "fail" : len(v.failures),
             "AB" : v.AB,
@@ -373,13 +396,13 @@ def plot(args) -> int:
             members_with_many_ABs += 1
 
 
-    # At this point, we should have no DNs with only AB1: either <1 or >1
+    # At this point, we should have no DNs with only AB1: either was absorbed into AB0 or there's AB2, etc
     assert df.loc[df.maxAB==1].empty, f"Unexpected AB1s: {df.loc[df.maxAB==1]}"
 
     # Add the emojis
     df.loc[(df.fail>0) & (df.success==0) ,"diag"] += "❌"
     if not df.loc[(df.fail>0)].empty :
-        line = f"""Some items had verification failures, whose details aren't stored in the log. Please inspect the <a href="#stdout">stored Dafny stdout</a>."""
+        line = f"""Some items had verification failures, whose details aren't stored in the log. Please inspect the <a href="#stdout">stored Dafny stdout</a> further down."""
         log.info(line)
         comment_box += f"* {line}\n"    
     df.loc[(df.OoR>0),"diag"] += "⌛️"
@@ -392,15 +415,15 @@ def plot(args) -> int:
         log.info(line)
         comment_box += f"* {line}\n"
 
-    # Sorting the items by interestingness is done through a score.
+    # Ranking the items by interestingness is done through a score.
     # A good starting point:
-    df["score"] = df.span * df.minRC
+    df["score"] = df.maxRC - df.minRC
     # but there's a lot of corner cases to consider.
 
-    # Items without span or minimum would have NaNs
-    df.loc[np.isnan(df.score),"score"] = 0
+    # Items without successes would have NaNs or infs, which breaks the rest of their calculations
+    df.loc[~np.isfinite(df.score),"score"] = 0
 
-    # ABs usually have smaller spans and smaller RCs than whole members, so boost them
+    # ABs usually have smaller slowdowns and smaller RCs than whole members, so boost them
     AB_boost_factor = 5
     df.loc[df["AB"]>0,"score"] *= AB_boost_factor
 
@@ -412,7 +435,7 @@ def plot(args) -> int:
     if bigRC == -inf: # there were no successes??
         bigRC == maxFailures
 
-    # items with only 1 success have span 0, yet a single success between many failures needs highlighting. Boost the score, but tag them
+    # items with only 1 success have slowdown 0, yet a single success between many failures needs highlighting. Boost the score, but tag them
     only1success = (df.success==1) & ((df.fail+df.OoR)>1)
     df.loc[only1success,"score"] = bigRC
     df.loc[only1success,"diag"] += "❓"
@@ -422,8 +445,7 @@ def plot(args) -> int:
 
     df.sort_values(["score"], ascending=False, kind='stable', inplace=True)
 
-
-    IAmode_recommended = members_with_many_ABs > (DNs_number / 2)
+    IAmode_recommended = IAmode_in_log or (members_with_many_ABs > (DNs_number / 2))
     if args.force_standard_mode:
         if IAmode_recommended:
             log.info(f"Setting IAmode OFF, even though most members have multiple ABs")
@@ -436,7 +458,7 @@ def plot(args) -> int:
         IAmode = True
     else:
         IAmode= IAmode_recommended
-        if IAmode_recommended:
+        if IAmode_recommended and not IAmode_in_log:
             log.info(f"Setting IAmode ON because most members have multiple ABs")
             comment_box += f"* Most members have multiple ABs, so Isolate-assertions mode was enabled\n"
 
@@ -473,6 +495,7 @@ def plot(args) -> int:
                 log.info(line)
                 comment_box += f"* {line}\n"
                 OoRstr = f"OoR > {minOoR}"
+                limitRC_defacto = minOoR
                 if minOoR < maxRC_ABs:
                     line=f"LimitRC must have been <= {minOoR}, yet some results are higher: {maxRC_ABs=}"
                     log.warn(line)
@@ -486,7 +509,7 @@ def plot(args) -> int:
         else:
             OoRstr = ""
     else:
-        comment_box += f"* LimitRC = {args.limitRC}\n"
+        limitRC_defacto = args.limitRC
         # we did some checking at the single-result-level while digesting the logs; here we can do global checks
         if args.limitRC < maxRC_ABs:
             line = f"LimitRC={args.limitRC}, yet some results are higher: {maxRC_ABs}"
@@ -496,15 +519,35 @@ def plot(args) -> int:
             line = f"LimitRC={args.limitRC}, yet {maxFailures=} is higher"
             log.info(line)
             comment_box += f"* {line}\n"
-        assert args.limitRC < minOoR, f"LimitRC={args.limitRC}, yet some OoR results are lower: {minOoR=}"
+        assert args.limitRC <= minOoR, f"LimitRC={args.limitRC}, yet some OoR results are lower: {minOoR=}"
         if minOoR < inf and  minOoR > args.limitRC * 1.1:
             # There are OoRs, but they are suspiciously higher than the given limit.
-            line = (f"{args.limitRC=} is quite smaller than the min OoR found = {minOoR}.")
+            line = (f"The min OoR found = {minOoR} is larger than {args.limitRC=}. Dafny/Z3 bug?") #Dafny issue 5525
             log.warn(line)
-            comment_box += f"* {line}\n"            
+            comment_box += f"* {line}\n"
         OoRstr = f"OoR > {args.limitRC}"
 
     failstr: str = OoRstr #"FAILED"# + fstr
+
+    # estimate the worst-case slowdown
+    # if any entry has 0 successes then can't estimate
+    if not IAmode: # because it's hard to see whether this'd be useful there
+        if df.loc[df.success==0].empty:
+            sumMaxRC = df.loc[(np.isfinite(df.maxRC)) & (df.OoR==0), "maxRC"].sum()
+            sumMaxRC += limitRC_defacto * df.loc[df.OoR>0].shape[0]
+            sumMinRC = df.loc[np.isfinite(df.minRC), "minRC"].sum()
+            slowdown_total = sumMaxRC/sumMinRC
+            line = f"Worst-case total slowdown estimated for this verification: {">" if minOoR < inf else ""}{slowdown_total:.1f}x"
+            if not df.loc[df.OoR>0].empty :
+                timeouts_pc = (df.loc[df.OoR>0, 'OoR']/(df.loc[df.OoR>0, 'OoR']+df.loc[df.OoR>0, 'success'])).max()*100
+                line += f" (+ ~{timeouts_pc:.0f}% timeouts)"
+            log.info(line)
+            comment_box += f"* {line}\n"
+        else:
+            line = f"Can't estimate a worst-case slowdown because some member/s failed to verify at all."
+            log.info(line)
+            comment_box += f"* {line}\n"
+
 
     # PREPARATORY CALCULATIONS TO PLOT THE RESULTS
 
@@ -519,18 +562,26 @@ def plot(args) -> int:
     minRC_plot = min(df[~df["excluded"]].iloc[0:args.top]["minRC"])
     maxRC_plot = max(df[~df["excluded"]].iloc[0:args.top]["maxRC"])
 
+    plotting_fails = (minOoR < inf) or (minFailures <inf) # whether we'll be plotting failures
+
     # The histograms have the user-given num of bins between minRC_plot and maxRC_plot,
     # + filler to the left until x=0, + 2 bins if there are fails (margin and fails bar)
     with np.errstate(invalid='ignore'): # silence RuntimeWarnings for inf values
-        # those values could be in min/maxRC_plot if all plots are for funcs that failed for all random seeds
-        bins = np.linspace(Quantity(minRC_plot),Quantity(maxRC_plot), num=args.nbins+1)
-    bin_width = bins[1]-bins[0]
+        # inf could be in min/maxRC_plot if all plots are for funcs that failed for all random seeds
+        if maxRC_plot < 2*minRC_plot: # the plot would be a big empty space with bars at the right end
+            low_bin = 0
+        else:
+            low_bin = minRC_plot
+        bins = np.linspace(Quantity(low_bin),Quantity(maxRC_plot), num=args.nbins+1)
+        bin_width = bins[1]-bins[0]
+            
 
-    log.info(f"{args.nbins=}, range {smag(minRC_plot)} - {smag(maxRC_plot)}, bin width {smag(bin_width)}")
-    plotting_fails = (minOoR != inf) or (minFailures != inf)
-    bin_margin = bins[-1] + 3 * bin_width
-    bin_fails = bin_margin + 3 * bin_width
-    bins_with_fails = np.append(bins,[bin_margin,bin_fails])
+    log.debug(f"{args.nbins=}, range {smag(minRC_plot)} - {smag(maxRC_plot)}, bin width {smag(bin_width)}")
+    bin_fails_margin = 3 * bin_width
+    bin_fails_width = 3 * bin_width
+    bin_fails_borders = [bins[-1] + bin_fails_margin, bins[-1] + bin_fails_margin + bin_fails_width]
+    bins_with_fails = np.append(bins,bin_fails_borders)
+    bin_fails_separator = bins[-1] + 0.5 * bin_fails_margin
 
     labels_plotted = []
     bins_plot = bins_with_fails if plotting_fails else bins
@@ -591,7 +642,7 @@ def plot(args) -> int:
                     'minRC':lambda x: smag(x) if abs(x)!=inf else "-" ,
                     #'OoRs':smag,
                     #'failures':smag,
-                    "span":lambda x: f"{x:>8.2%}"
+                    "slowdown":lambda x: f"{x:>4.2}"
                     },
                 na_rep='-',
                 float_format=smag
@@ -660,22 +711,22 @@ def plot(args) -> int:
                             xlim=(0,bins_plot[-1]+bin_width),
                             xlabel="RC bins",
                             padding=((0.1,0.1), (0, 0.1)),
+
+                            color=hv.Cycle(),
                 ),
             #,logy=True # histograms with logY have been broken in bokeh for years: https://github.com/holoviz/holoviews/issues/2591
-            opts.NdOverlay(show_legend=True,)
+            opts.NdOverlay(show_legend=True)
             )
 
-        # A vertical line separating the fails bar
-        # disabled because it disables the autoranging of the histograms
-        # vline = hv.VLine(bin_centers[-2]).opts(
-        #     opts.VLine(color='black', line_width=3, autorange='y',ylim=(0,None))
-        # )
-        # vspan = hv.VSpan(bin_centers[-2],bin_centers[-1]).opts(
-        #     opts.VSpan(color='red', autorange='y',ylim=(0,None),apply_ranges=False)
-        # )
+        # A vertical separator for the fails bar
+        vline = hv.VLine(bin_fails_separator).opts(
+            opts.VLine(color='black', line_width=2, autorange='y',ylim=(0,None),apply_ranges=False)
+        )
+        vspan = hv.VSpan(bin_fails_separator).opts(
+            opts.VSpan(color='#00000020', autorange='y',ylim=(0,None),apply_ranges=False)
+        )
 
-        # hists = hists * vspan
-
+        hists = hists * vline * vspan
 
         ####### SPIKES
 
@@ -699,8 +750,11 @@ def plot(args) -> int:
             eo = df[df["element"]==dn]["element_ordered"].values[0]
             RC = results[dn].RC
             # Represent the failures / OoRs with a spike in the last bin
-            for f in range(len(results[dn].OoR)+len(results[dn].failures)):
-                RC.append(bin_centers[-1]+f*bin_width/20)
+            spike_failures_num = len(results[dn].OoR)+len(results[dn].failures)
+            if spike_failures_num > 0:
+                spike_failures_sep = bin_width / spike_failures_num
+                for f in range(spike_failures_num):
+                    RC.append(bin_centers[-1] - bin_width/2 + f*spike_failures_sep)
             hover2 = HoverTool(
                         tooltips=[
                             ("Element", dn),
@@ -730,6 +784,7 @@ def plot(args) -> int:
                         backend_opts={
                             "xaxis.bounds" : (0,bins_plot[-1]+bin_width)
                             },
+                        show_legend=False,
                         ),
             opts.NdOverlay(show_legend=False,
                             click_policy='mute',
@@ -741,10 +796,14 @@ def plot(args) -> int:
             #opts.NdOverlay(shared_axes=True, shared_datasource=True,show_legend=False)
             )
 
+
+        spikes = spikes * vline * vspan
+
+
         ##### HISTOGRAMS AND SPIKES TOGETHER
 
         hvplot = hists + spikes #+ table_plot #+ hist #+ violin
-        mf = NumericalTickFormatterWithLimit(bin_margin, format="0.0a")
+        mf = NumericalTickFormatterWithLimit(bin_fails_separator, format="0.0a")
 
         hvplot.opts(
         #     #opts.Histogram(responsive=True, height=500, width=1000),
@@ -762,7 +821,7 @@ def plot(args) -> int:
 
     # TABLE/S
     dropped_cols += ["loc_txt"]
-    df["span"] = df["span"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
+    #df["span"] = df["span"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
     # We can't use magnitudes with the RCs because then the tables can't be sorted correctly.
     df.minRC = df.minRC.apply(lambda x: x if abs(x)<inf else nan)
     df.maxRC = df.maxRC.apply(lambda x: x if abs(x)<inf else nan)
@@ -772,7 +831,7 @@ def plot(args) -> int:
 
     dft1 = df.drop(columns=dropped_cols).rename(
         columns={
-            "span":"RCspan%",
+            #"span":"slowdown",
             "loc_html":"location"
             }
     )
@@ -781,7 +840,7 @@ def plot(args) -> int:
     bokeh_formatters = {
         'minRC': NumberFormatter(format='0,0', text_align = 'right',nan_format = '-'),
         'maxRC': NumberFormatter(format='0,0', text_align = 'right'),
-        # 'RCspan%': NumberFormatter(format='0.00', text_align = 'right'),
+        'slowdown': NumberFormatter(format='0.00', text_align = 'right'),
         'score': NumberFormatter(format='0,0', text_align = 'right'),
         'success': NumberFormatter(format='0,0', text_align = 'right'),
         'fail': NumberFormatter(format='0,0', text_align = 'right'),
@@ -809,15 +868,16 @@ def plot(args) -> int:
     if df_vrs is not None:
         df_vrs.reset_index(inplace=True)
         df_vrs.rename_axis(index="idx",inplace=True)
-        df_vrs["span"] = df_vrs["span"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
-        df_vrs.minRC = df_vrs.minRC.apply(lambda x: x if abs(x)<inf else "-")
-        df_vrs.maxRC = df_vrs.maxRC.apply(lambda x: x if abs(x)<inf else "-")
-        df_vrs.success = df_vrs.success.apply(lambda x: x if x!=0 else "-")
+        #df_vrs["span"] = df_vrs["span"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
+        #df_vrs.minRC = df_vrs.minRC.apply(lambda x: x if abs(x)<inf else "-")
+        #df_vrs.maxRC = df_vrs.maxRC.apply(lambda x: x if abs(x)<inf else "-")
+        #df_vrs.success = df_vrs.success.apply(lambda x: x if x!=0 else "-")
         #df_vrs.OoR = df_vrs.OoR.apply(lambda x: x if x!=0 else "-")
         #df_vrs.fail = df_vrs.fail.apply(lambda x: x if x!=0 else "-")
+        dropped_cols += ["diag", "src", "desc"]
         dft2 = df_vrs.drop(columns=dropped_cols, errors='ignore').rename(
                             columns={
-                                "span":"RCspan%",
+                                #"span":"RCspan%",
                                 "loc_html":"location"   
                                 })
 
@@ -909,14 +969,14 @@ a[id^="L"] {
             continue
 
     title = "-".join([os.path.splitext(os.path.basename(p))[0] for p in args.paths])
-    pane_title = pn.pane.Markdown(f"# {title}")
+    pane_title = pn.pane.Markdown(f"# Log file: {title}")
     pane_customJS = pn.pane.HTML(customJS, visible=False)
     plot = pn.Column(pane_title, hvplot, table_title, table, table_vrs_title, table_vrs,   pane_comment_box, legend_pane, pane_cmds, pane_customJS)
 
 
     # fig.xaxis.bounds = (0,bin_fails)
 
-    plotfilepath = os.path.join(args.output_dir, title+".html")
+    plotfilepath: str = os.path.join(args.output_dir, title+".html")
 
     try:
         os.remove(plotfilepath)
@@ -934,7 +994,9 @@ a[id^="L"] {
     if args.stop:
         log.debug("Stopping as requested.")
         return(0)
-    os.system(f"open {plotfilepath}")
+    
+    webbrowser.open("file://" + os.path.realpath(plotfilepath), new=2, autoraise=False) 
+    #os.system(f"open {plotfilepath}")
 
 
 
