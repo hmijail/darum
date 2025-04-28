@@ -1,6 +1,6 @@
 # A quick walkthrough of using DARUM to find and fix brittleness
 
-How would you use DARUM on your own Dafny project? Let's walk through the process of verifying Consensys' DafnyEVM project. We'll focus on the tools and barely get into the underlying concepts; for explanations please check the [Details document](Details.md) in this repo, or the gentler introduction in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html).
+How would you use DARUM on your own Dafny project? Let's walk through the process of verifying Consensys' DafnyEVM project. We'll focus on the tools and barely get into the underlying concepts; for explanations please check the [Details document](Details.md) in this repo, or the gentler introduction in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html).
 
 This walkthrough was done with DARUM 1.0, Dafny 4.10 and Z3 4.14.1.
 

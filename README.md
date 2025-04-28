@@ -1,8 +1,13 @@
 # DAfny Resource Usage Measurement
+*Darum? Ach, warum!*
 
 A set of tools to detect and help diagnose brittle verification.
 
-*Darum? Ach, warum!*
+A quick summary follows. Other options:
+* A gentler introduction in the form of a [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html).
+* A [walkthrough](docs/Walkthrough.md) of using DARUM on a real project.
+* More technical [details](docs/Details.md).
+
 
 ## What does Darum do? 
 
@@ -15,7 +20,7 @@ For a long time, the common advice to help Dafny code verify successfully was to
 
 Since recently, Dafny has been adding functionalities to help the user control what information reaches Z3. The problem then is that one rarely knows what allowed Z3 find a proof in the past, or what is confusing it now. Indeed, at the Dafny level, the only thing we get back is the result (verification successful, failure or timeout), plus how costly was it for the solver to reach that result.
 
-At Consensys, we found that the distribution of verification costs in bigger codebases turns heavily multimodal. Hence, the standard statistics (average, covariance) typically used to report costs obscure important information; namely, that cost variation is not smooth, but can change drastically. And because of the inherent randomness, these variations happen for no reason discernible to the user.
+At Consensys, we found that the random distribution of verification costs in bigger codebases turns heavily multimodal. Hence, the standard statistics (average, covariance) typically used to report costs obscure important information; namely, that cost variation is not smooth, but can change drastically. And because of the inherent randomness, these variations happen for no reason discernible to the user.
 
 **Darum analyzes the solver costs to find what parts of the code show the highest variability. It's at these points where applying Dafny's brittleness control functionalities will have the biggest effect.**
 
