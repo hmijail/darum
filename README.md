@@ -17,12 +17,12 @@ Since recently, Dafny has been adding functionalities to help the user control w
 
 At Consensys, we found that the distribution of verification costs in bigger codebases turns heavily multimodal. Hence, the standard statistics (average, covariance) typically used to report costs obscure important information; namely, that cost variation is not smooth, but can change drastically. And because of the inherent randomness, these variations happen for no reason discernible to the user.
 
-**Darum analyzes the solver costs, to find what parts of the code show the highest variability. It's at these points where applying Dafny's brittleness control functionalities will have the biggest effect.**
+**Darum analyzes the solver costs to find what parts of the code show the highest variability. It's at these points where applying Dafny's brittleness control functionalities will have the biggest effect.**
 
 ## What exactly is Darum?
 
-Darum consists of 3 loosely coupled tools:
-* `dafny_measure`: a wrapper around `dafny measure-complexity` for easier management of the iterative verification process. It captures the logs and augments them with transient information for easier reference:
+Darum consists of 3 related tools:
+* `dafny_measure`: a wrapper around `dafny measure-complexity` for easier management of the iterative verification process. It captures the logs and augments them with context information for easier bookkeeping:
   - The timestamp and arguments used in this verification run
   - Dafny's stdout and stderr
   - The input file's contents and a hash, to avoid confusion when comparing successive versions of the code
@@ -57,7 +57,7 @@ $ pipx upgrade darum
 
 ## Usage
 
-Each of the tools has a `--help` argument that lists the available options.
+You can find a full workflow walkthrough [here](docs/Walkthrough.md).
 
 In general, the workflow will be:
 1. Run `dafny_measure`
@@ -81,28 +81,24 @@ $ compare_distribution XYZ.log -i XYZ_IA.log
 ...
 ```
 
-For further details about how Darum works and usage strategies, please see the file [Details.md](<Details.md>).
+Each of the tools offers a `--help` argument that lists the available options.
 
-#### How many iterations to run with `dafny_measure`? (`-i` argument)
+For further details about how Darum works and usage strategies, please see the file [Details.md](docs/Details.md).
 
-The default is 10, which in practice seem to work well. Bigger numbers (100 iterations or more) might be interesting to get more detail on how the distribution really looks like in badly behaved code: what are its modes, and how extreme it can get.
+#### How many mutations to run with `dafny_measure`? (`-m` argument)
 
-Note that a higher number of iterations can trigger bugs in Dafny, and fail midway without producing a log (Dafny issue [#5316](https://github.com/dafny-lang/dafny/issues/5316)). Plan accordingly.
+The default is 10, which in practice seem to work well for quick tests. Bigger numbers (100 mutations or more) are useful to get more detail on how the distribution really looks like in badly behaved code: what are its modes, and how extreme it can get.
+
+Note that a higher number of mutations can trigger bugs in Dafny, and fail midway without producing a log (Dafny issue [#5316](https://github.com/dafny-lang/dafny/issues/5316)). Plan accordingly.
 To work around this, there's some functionality in Darum to analyze multiple small logfiles, which can be more reliable than trying to generate a big logfile at once. (Darum issue [#1](https://github.com/hmijail/darum/issues/1))
 
 ## Interpreting the results
 
-Take a look at the [walkthrough](docs/Walkthrough.md)
+Covered in the [walkthrough](docs/Walkthrough.md).
 
 ### The plots
 
 #### Plain plots
-
-##### What is an acceptable span?
-Badly behaving members seem to blow up their span rather abruptly, so probably a single run will quickly give an idea of which members need work. However, as a rule of thumb: in IA mode, spans seem to grow abruptly once they go over 3-5%. In default mode, this happens over 10%.
-
-
-##### Worst offenders
 
 ABs are scored according to their characteristics, including the fact that a non-successful AB makes subsequent ABs in the same member unreliable.
 
@@ -158,6 +154,9 @@ As mentioned, a member can verify stably in default mode, but in IA mode present
 
 To minimize noise, once an AB fails in IA mode, we ignore subsequent ABs in the same iteration. In such a case, the tables will show that some ABs have a smaller number of results than previous ones. In the extreme case of only 1 result remaining for a given AB, it will be tagged with the ❗️ icon.
 
+### Catching rare cases in long verification runs
+Sometimes interesting mutations happen very rarely. Combined with Dafny's [difficulties](https://github.com/dafny-lang/dafny/issues/5316) to run long series of mutations, it can be difficult to get a log that captures a rare mutation. DARUM's multifile support will help [eventually](https://github.com/hmijail/darum/issues/1). Until then, one trick is to take note of the random seed that caused the interesting mutation (reported in Dafny's stdout and logs), and run a new verification run starting in that seed using the `--rseed` argument to `dafny_measure`.
+
 ## Some remedies to keep in mind
 
 ### Dafny standard library
@@ -169,7 +168,7 @@ Since version 4.4, Dafny includes a standard library that provides pre-verified 
 See [here](https://dafny.org/dafny/DafnyRef/DafnyRef.html#sec-brittle-verification).
 
 
-# Hacking
+# Hacking on DARUM
 
 Clone the repo to your system and install it in editable mode with pipx, poetry or similar tools.
 
@@ -178,6 +177,3 @@ cd darum
 pipx install -e .
 ```
 
-DARUM's plots use HoloViz, a Python library that configures and deploys Javascript libraries into a standalone, interactive HTML page. This complexity combined with Python's own packaging complexities mean that if you try to run DARUM's scripts directly, the generated HTML pages will fail to work.
-
-Hence, **remember to use the user-facing scripts installed by tools like pipx and poetry instead**.

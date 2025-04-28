@@ -39,16 +39,16 @@ def row_from_Details(v: Details):
 
     #comment = ""
 
-    # Calculate the slowdown
+    # Calculate the speedup
     maxCost_entry = maxRC_entry if len(v.OoR)==0 else minOoR_entry
-    slowdown = maxCost_entry/minRC_entry #if minRC_entry != 0 else 0
-    # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {slowdown:>8.2%}"
+    speedup = maxCost_entry/minRC_entry #if minRC_entry != 0 else 0
+    # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {speedup:>8.2%}"
     # log.debug(info)
     return {
         "success": len(v.RC),
         "minRC" : minRC_entry,
         "maxRC" : maxRC_entry,
-        "slowdown" : slowdown,
+        "speedup" : speedup,
         "OoR" : len(v.OoR),
         "fail" : len(v.failures),
         "AB" : v.AB,
@@ -94,7 +94,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('path_normal', nargs='+')
     parser.add_argument('-i','--path_IA', nargs='+')
-    parser.add_argument("-v", "--verbose", action="count", default=0)
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Use multiple times to increase verbosity")
     #parser.add_argument("-p", "--recreate-pickle", default=, action="store_true")
     # parser.add_argument("-n", "--nbins", default=50)
     # #parser.add_argument("-d", "--RCspan", type=int, default=10, help="The span maxRC-minRC (as a % of max) over which a plot is considered interesting")
@@ -123,7 +123,7 @@ def main() -> None:
 
     ABs_present = False
     vr_past_limitRC = ""
-    df_IA = pd.DataFrame( columns=["minRC", "maxRC", "slowdown", "success", "OoR","fail","AB"])
+    df_IA = pd.DataFrame( columns=["minRC", "maxRC", "speedup", "success", "OoR","fail","AB"])
     df_IA.index.name="Element"
 
     for k,v in results_IA.items():
@@ -146,7 +146,7 @@ def main() -> None:
     renamer = {c:c_IA for c, c_IA in zip(colnames, colnames_IA)}
     df_IA.rename(columns=renamer, inplace=True)
 
-    df = pd.DataFrame( columns=["minRC", "maxRC", "slowdown", "success", "OoR","fail","AB"])
+    df = pd.DataFrame( columns=["minRC", "maxRC", "speedup", "success", "OoR","fail","AB"])
     df.index.name="Element"
     for k,v in results_normal.items():
         if v.AB!=0:
@@ -334,8 +334,8 @@ def main() -> None:
     # TABLE
 
     df.drop(columns=["Element_ordered"], inplace=True)
-    #df["slowdown"] = df["slowdown"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
-    #df["slowdown IA"] = df["slowdown IA"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
+    #df["speedup"] = df["speedup"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
+    #df["speedup IA"] = df["speedup IA"].apply(lambda d: nan if np.isnan(d) else int(d*10000)/100)
     df["minRC"] = df["minRC"].apply(lambda x: x if abs(x)<inf else nan)
     df["minRC IA"] = df["minRC IA"].apply(lambda x: x if abs(x)<inf else nan)
     df["maxRC"] = df["maxRC"].apply(lambda x: x if abs(x)<inf else nan)
@@ -348,8 +348,8 @@ def main() -> None:
     df["fail IA"] = df["fail IA"].apply(lambda x: x if x!=0 else nan)
 
     df.rename(columns={
-            "slowdown":"slowd",
-            "slowdown IA":"slowd IA",
+            "speedup":"spdup",
+            "speedup IA":"spdup IA",
             "success": "succs",
             "success IA": "succ IA"
         },inplace=True)
@@ -359,7 +359,7 @@ def main() -> None:
     bokeh_formatters = {
         'minRC': NumberFormatter(format='0,0', text_align = 'right'),
         'maxRC': NumberFormatter(format='0,0', text_align = 'right'),
-        'slowd': NumberFormatter(format='0.0000', text_align = 'right'),
+        'spdup': NumberFormatter(format='0.0000', text_align = 'right'),
         'score': NumberFormatter(format='0,0', text_align = 'right'),
         'succs': NumberFormatter(format='0', text_align = 'right'),
         'fail': NumberFormatter(format='0,0', text_align = 'right'),

@@ -1,6 +1,6 @@
 # A quick walkthrough of using DARUM to find and fix brittleness
 
-How would you use DARUM on your Dafny project? Let's walk through the process of verifying Consensys' DafnyEVM project. We'll focus on the tools and barely get into the underlying concepts; for explanations please check the full [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html) or other docs in this repo.
+How would you use DARUM on your own Dafny project? Let's walk through the process of verifying Consensys' DafnyEVM project. We'll focus on the tools and barely get into the underlying concepts; for explanations please check the [Details document](Details.md) in this repo, or the gentler introduction in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html).
 
 This walkthrough was done with DARUM 1.0, Dafny 4.10 and Z3 4.14.1.
 
@@ -12,9 +12,10 @@ So let's just change the `dafny` call for `dafny_measure`:
 
 What does `dafny_measure` do?
 * It internally calls Dafny's `--measure-complexity`, which verifies the code many times (10 by default) applying some randomization to Z3's search for solutions. This results in a JSON log file, to which DARUM adds extra context so that it's more useful in next steps: the stdout output of the Dafny run, the contents of the input file, the exact command line that was executed. Then this file is timestamped and saved in the output dir (by default "darum/").
-* It sets Dafny's timeout to 10M Resource Units, which is equivalent to about 2 seconds (per member) on my 2021 MacBook. You can change that for your project, but don't make it too permissive; timeouts help DARUM find where the trouble is.
+* It sets Dafny's timeout to 10M Resource Units, which is equivalent to about 2 seconds (per member) on my 2021 MacBook. You can change that for your project, but don't make it too permissive yet; we'll see that short timeouts with many mutations might be a more productive approach.
 
-At this point a log was generated, and `dafny_measure` automatically went through the next step of using DARUM's `plot_distribution` to generate an interactive HTML page with the analysis' results.  You can find it [here](0426-094129_evm_H599e_M10_L10M_VIF_.html).
+At this point a log was generated, and `dafny_measure` automatically went through the next step of using DARUM's `plot_distribution` to generate an [interactive HTML page with the analysis' results](0426-094129_evm_H599e_M10_L10M_VIF_.html).
+
 For convenience, here's a screenshot.
 
 -----
@@ -26,7 +27,7 @@ What do we see here?
 * The table shows that most members of the DafnyEVM verified successfully. In fact, only one of them failed: verification of `Bytecode.Not` ran Out Of Resources (OoR, akin to timeout) every time! Hence its plot is a single bar in the Fail/OoR area. 
 
 We'll focus on `Bytecode.Not` for the rest of this walkthrough, since its constant timeouts hint that it needs the most attention. Indeed it's ranked first. But let's take a quick look at the rest of the table.
-* Notice the "slowdown" column. With apologies to [Gene Amdahl's *speedup*](https://en.wikipedia.org/wiki/Amdahl's_law), this gives a pithy summary of the variability for this member. The minimum is 1, for no variability; there's no upper bound.
+* Notice the "speedup" column. With apologies to [Gene Amdahl](https://en.wikipedia.org/wiki/Amdahl's_law), this gives a pithy summary of the variability for this member. The minimum is 1, for no speedup; there's no upper bound. **Empirically, potential speedups higher than 1.1 should be considered a brittleness warning.**
 * `ByteUtils.WriteUint256` is the member ranked 2nd highest. What can we learn about it already?
   * In these 10 verification runs, the min and max cost was 439k and 1.4M. So **sometimes it's verifying 3x slower than it could**.
   * How frequently does this happen? The **distribution plot** helps answer: its verification time for these 10 runs was clustered around 500k RUs, but 1 of those runs took 3.4x longer time. Imagine you were editing something at that moment: wouldn't you worry that you broke something? But it's random!
@@ -34,7 +35,7 @@ We'll focus on `Bytecode.Not` for the rest of this walkthrough, since its consta
 * There is a "Comments" section that gathers diagnostic messages and suggestions resulting from the analysis.
 * Looking back at `Bytecode.Not`, we see now that its timeouts imply that it's at the very least 10x costlier to verify than any other member in the project.
 
-# Focus on a single suspicious symbol
+# Focus on a single suspicious member
 Let's work on `Bytecode.Not`. We will use again `dafny_measure`, but since this member is slow/expensive to verify, let's focus exclusively on it: instead of the whole project we verify just its file, and add Dafny's `--symbol Not` to filter out the rest of symbols. We'll also set a higher cost limit and many more mutations. In this way we get the maximum information for the least possible cost.
 ```
 $ dafny_measure src/dafny/bytecode.dfy --limitRC 100M --mutations 100 --symbol Not
@@ -83,9 +84,9 @@ At this point we can jump to the code location in those first 2 assertions and s
 var mhs := st.Peek(0) as bv256;
 var res := (!mhs) as u256;         //the location for the assertions is the "as"
 ```
-The bad news is that Dafny's description for assertions 6 & 7 is not very helpful: `Result of operation never violates newtype constraints for 'u256'`. And this code is the very core of the NOT opcode implemented by `Bytecode.Not`, so what can we do?
+The bad news is that Dafny's description for assertions 6 & 7 is not very helpful: `Result of operation never violates newtype constraints for 'u256'`. And this code is the very core of the NOT opcode implemented by `Bytecode.Not`. `mhs` is a `bv256`, and we know that bitvector operations are considered expensive in Dafny.
 
-Well, `mhs` is a `bv256`, and we know that bitvector operations are considered expensive in Dafny. So what if we just changed the implementation to use arithmetic?
+The good news is that we could just change the implementation to use arithmetic instead.
 ```c++
 var mhs := st.Peek(0) as nat;
 var res := (MAX_U256 - mhs) as u256;
@@ -105,11 +106,11 @@ There's a 3rd tool, `compare_distributions`, that helps answer this. For the nex
 ![Screenshot of the page generated by the compare_distributions tool](<Screenshot Compare.jpg>)
 
 In this plot, each `X` marks the cost of a normal verification of a member, while each `I` marks the *total cost of the isolated assertions* for that same member. We verified 10 mutations in each mode, so for each member there's 10 X and 10 I. Notice the patterns that emerge:
-* First of all, only our old friend `Bytecode.NotBV` had trouble. All the other members seem relatively well-behaved, since they have low slowdown values. So let's see what they seem to have in common.
+* First of all, only our old friend `Bytecode.NotBV` had trouble. All the other members seem relatively well-behaved, since they have low speedup values. So let's see what they seem to have in common.
 * The I are typically to the right, while the X are to the left. This means that for each member, **normal verification is typically about 10x cheaper** than with Isolated Assertions. Note the log x axis.
 * The **I are typically closely packed together**, while **the X have a bit more variation**. This means that across the analyzed mutations, the *total cost* of verifying a given member with **Isolated Assertions is typically more stable** than the cost of its normal verification.
-	* Indeed, columns "slowd" and "slowd IA" in the table show that even these relatively well-behaved members reach slowdowns of around 1.07 in normal verification, but only 1.02 in IA mode.
-* The only member that breaks these patterns is `Bytecode.NotBV`. Its Xs are very high, in the OoR/timeout area, and indeed we know from previous analysis that it should be over 100M. Also, its Is are rather disperse when compared to the other members. This means that even Isolated Assertions show variability for this member; and when these **variable assertions get batched together in a normal verification, this seems to cause *disproportionally* higher variability**.
+	* Indeed, columns "spdup" and "spdup IA" in the table show that even these relatively well-behaved members reach speedups of around 1.07 in normal verification, but only 1.02 in IA mode - as mentioned in the [Details doc](Details.md).
+* The only member that breaks these patterns is `Bytecode.NotBV`. Its Xs are very high, in the OoR/timeout area, and indeed we know from previous analysis that it's over 100M. Also, its Is are rather disperse when compared to the other members. This means that even Isolated Assertions show variability for this member; and when these **variable assertions get batched together in a normal verification, this seems to cause *disproportionally* higher variability**.
 
 This all **suggests an algorithm for stabilization**: by manually causing Dafny to batch together a smaller number of assertions, the variability should be reduced, in exchange of a relatively high (but relatively stable) verification cost. Indeed, Dafny has lately been adding features to ease this task of controlling the context that reaches Z3.
 
@@ -130,7 +131,9 @@ When you use DARUM you might find yourself comparing many slightly changed versi
 Hence, DARUM offers some help: every time you analyze a file with `dafny_measure`, the standard Dafny logs are augmented with the source code of the analyzed file and the stdout of that dafny run; and every log and HTML file is timestamped. Additionally, to help with bookkeeping, this is also reflected in the filename structure, which includes the verification date in MMDD-HHmmss format, plus the details of the dafny call, plus 4 bytes of the hash of the contents of the input file - so that you can always know whether the files you are comparing are exactly the same.
 
 ## Not only brittleness
-While DARUM is focused on brittleness, most of the analysis will also be helpful for detection of plain old slow verification. Even if you're not dealing with a multimodal random distribution of costs, there is always a small variability, which is typically proportionally wider in longer verifications. The end result is that costlier verifications will get ranked for attention. 
+While DARUM is focused on brittleness, most of the analysis will evidently be helpful for detection of plain old slow verification. Even if you're not dealing with a multimodal random distribution of costs, there is always a small variability, which is typically proportionally wider in longer verifications. The end result is that costlier verifications will still get ranked for attention.
 
-And that is all. Good luck and happy de-brittlefying!
+And that is all. For more insight into how DARUM works, please check the [Details document](Details.md) in this repo, or the gentler introduction in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html).
+
+Good luck and happy de-brittlefying!
 

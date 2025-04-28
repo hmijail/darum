@@ -211,7 +211,7 @@ if (document.readyState !== "complete") {
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('paths', nargs='*', help="File/s to plot. If absent, tries to plot the latest JSON file in the output dir.")
-    parser.add_argument("-v", "--verbose", action="count", default=0)
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Use multiple times to increase verbosity")
     parser.add_argument("-p", "--recreate-pickle",action="store_true", help=argparse.SUPPRESS) #unmaintained
     parser.add_argument("-n", "--nbins", default=50)
     #parser.add_argument("-d", "--RCspan", type=int, default=10, help="The span maxRC-minRC (as a % of max) over which a plot is considered interesting")
@@ -280,7 +280,7 @@ def plot(args) -> int:
     minOoR = inf # min RC of the OoR entries
     minFailures = inf # min RC of the failed entries
     maxFailures = -inf # max RC of the failed entries
-    df = pd.DataFrame( columns=["minRC", "maxRC", "slowdown", "success", "OoR","fail","fail_extr","AB","loc_html","loc_txt","diag","displayName", "desc", "src"])
+    df = pd.DataFrame( columns=["minRC", "maxRC", "speedup", "success", "OoR","fail","fail_extr","AB","loc_html","loc_txt","diag","displayName", "desc", "src"])
     df.index.name="element"
 
 
@@ -325,7 +325,7 @@ def plot(args) -> int:
 
         # Calculate the span between max and min
         maxCost_entry = maxRC_entry if len(v.OoR)==0 else minOoR_entry
-        slowdown = maxCost_entry/minRC_entry # slowdown
+        speedup = maxCost_entry/minRC_entry # speedup
         # info = f"{k:40} {len(v.RC):>10} {smag(minRC_entry):>8}    {smag(maxRC_entry):>6} {span:>8.2%}"
         # log.debug(info)
         fail_extremes = "" if minFailures_entry == inf else f"{smag(minFailures_entry)} - {smag(maxFailures_entry)}"
@@ -356,7 +356,7 @@ def plot(args) -> int:
             "success": len(v.RC),
             "minRC" : minRC_entry,
             "maxRC" : maxRC_entry,
-            "slowdown" : slowdown,
+            "speedup" : speedup,
             "OoR" : len(v.OoR),
             "fail" : len(v.failures),
             "AB" : v.AB,
@@ -423,7 +423,7 @@ def plot(args) -> int:
     # Items without successes would have NaNs or infs, which breaks the rest of their calculations
     df.loc[~np.isfinite(df.score),"score"] = 0
 
-    # ABs usually have smaller slowdowns and smaller RCs than whole members, so boost them
+    # ABs usually have smaller speedups and smaller RCs than whole members, so boost them
     AB_boost_factor = 5
     df.loc[df["AB"]>0,"score"] *= AB_boost_factor
 
@@ -435,7 +435,7 @@ def plot(args) -> int:
     if bigRC == -inf: # there were no successes??
         bigRC == maxFailures
 
-    # items with only 1 success have slowdown 0, yet a single success between many failures needs highlighting. Boost the score, but tag them
+    # items with only 1 success have speedup 0, yet a single success between many failures needs highlighting. Boost the score, but tag them
     only1success = (df.success==1) & ((df.fail+df.OoR)>1)
     df.loc[only1success,"score"] = bigRC
     df.loc[only1success,"diag"] += "❓"
@@ -529,22 +529,23 @@ def plot(args) -> int:
 
     failstr: str = OoRstr #"FAILED"# + fstr
 
-    # estimate the worst-case slowdown
+    # estimate the best-case speedup
     # if any entry has 0 successes then can't estimate
     if not IAmode: # because it's hard to see whether this'd be useful there
         if df.loc[df.success==0].empty:
             sumMaxRC = df.loc[(np.isfinite(df.maxRC)) & (df.OoR==0), "maxRC"].sum()
             sumMaxRC += limitRC_defacto * df.loc[df.OoR>0].shape[0]
             sumMinRC = df.loc[np.isfinite(df.minRC), "minRC"].sum()
-            slowdown_total = sumMaxRC/sumMinRC
-            line = f"Worst-case total slowdown estimated for this verification: {">" if minOoR < inf else ""}{slowdown_total:.1f}x"
+            speedup_total = sumMaxRC/sumMinRC
+            log.debug(f"{speedup_total=}")
+            line = f"Best-case *total* speedup estimated from this verification log: {"> " if minOoR < inf else ""}{speedup_total:.2f}x"
             if not df.loc[df.OoR>0].empty :
                 timeouts_pc = (df.loc[df.OoR>0, 'OoR']/(df.loc[df.OoR>0, 'OoR']+df.loc[df.OoR>0, 'success'])).max()*100
                 line += f" (+ ~{timeouts_pc:.0f}% timeouts)"
             log.info(line)
             comment_box += f"* {line}\n"
         else:
-            line = f"Can't estimate a worst-case slowdown because some member/s failed to verify at all."
+            line = f"Can't estimate a best-case total speedup because some member/s failed to verify at all."
             log.info(line)
             comment_box += f"* {line}\n"
 
@@ -642,7 +643,7 @@ def plot(args) -> int:
                     'minRC':lambda x: smag(x) if abs(x)!=inf else "-" ,
                     #'OoRs':smag,
                     #'failures':smag,
-                    "slowdown":lambda x: f"{x:>4.2}"
+                    "speedup":lambda x: f"{x:>4.2}"
                     },
                 na_rep='-',
                 float_format=smag
@@ -831,7 +832,7 @@ def plot(args) -> int:
 
     dft1 = df.drop(columns=dropped_cols).rename(
         columns={
-            #"span":"slowdown",
+            #"span":"speedup",
             "loc_html":"location"
             }
     )
@@ -840,7 +841,7 @@ def plot(args) -> int:
     bokeh_formatters = {
         'minRC': NumberFormatter(format='0,0', text_align = 'right',nan_format = '-'),
         'maxRC': NumberFormatter(format='0,0', text_align = 'right'),
-        'slowdown': NumberFormatter(format='0.00', text_align = 'right'),
+        'speedup': NumberFormatter(format='0.00', text_align = 'right'),
         'score': NumberFormatter(format='0,0', text_align = 'right'),
         'success': NumberFormatter(format='0,0', text_align = 'right'),
         'fail': NumberFormatter(format='0,0', text_align = 'right'),
