@@ -60,7 +60,7 @@ There's a few things to note here:
 * Simple statistical measures like averages or covariances would probably obscure this behavior instead of exposing it. Hence DARUM's focus on max, min and plots.
 * Dafny by default starts verification with random seed 0. Hence the only source of randomness is the code itself. **Any code change injects randomness – and surprises.** In contrast, **DARUM's goal is to purposefully explore and bound the randomness, and take advantage of it to find possible improvements.**
 
-If only we could force Dafny to always take that very rare but 100x fast path! Unfortunately Dafny doesn't allow us to do that *directly*. But, knowing the problem, we might find workarounds. For example, we could try to pare down the context that Dafny has inside of `Bytecode.Not` so that it can only find the fast verification path instead of the slow one – as outlined in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html). Or we could simply change the implementation.
+If only we could force Dafny to always take that very rare but 100x fast path! Unfortunately Dafny doesn't allow us to do that *directly*. But, knowing the problem, we might find workarounds. For example, we could try to pare down the context that Dafny has inside of `Bytecode.Not` so that it can only find the fast verification path instead of the slow one – as outlined in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html). Or we could simply change the implementation.
 
 But having some more details would be helpful to know what to do.
 
@@ -125,7 +125,7 @@ Finally, you might wonder where are the results for the new implementation `Byte
 So, could we you just run lots of mutations? Unfortunately, Dafny has trouble running such long series of mutations (it gets progressively slower and eventually hangs, losing all progress - issue [5316](https://github.com/dafny-lang/dafny/issues/5316)), and DARUM's multi-file support is currently broken (issue [1](https://github.com/hmijail/darum/issues/1)). So the best solution currently is to run series of 100-200 mutations at once if using `--symbol`, or much less if using `--verify-included-files` or `--isolated assertions`.
 
 ## Log filename structure
-To finish, remember we mentioned those cryptic filenames in the logs and HTML pages?
+Remember we mentioned those cryptic filenames in the logs and HTML pages?
 When you use DARUM you might find yourself comparing many slightly changed versions of your files. But a situation with many small changes causing randomized results will challenge your sanity, and not many people are happy to commit experiments to version control.
 
 Hence, DARUM offers some help: every time you analyze a file with `dafny_measure`, the standard Dafny logs are augmented with the source code of the analyzed file and the stdout of that dafny run; and every log and HTML file is timestamped. Additionally, to help with bookkeeping, this is also reflected in the filename structure, which includes the verification date in MMDD-HHmmss format, plus the details of the dafny call, plus 4 bytes of the hash of the contents of the input file - so that you can always know whether the files you are comparing are exactly the same.
@@ -133,7 +133,7 @@ Hence, DARUM offers some help: every time you analyze a file with `dafny_measure
 ## Not only brittleness
 While DARUM is focused on brittleness, most of the analysis will evidently be helpful for detection of plain old slow verification. Even if you're not dealing with a multimodal random distribution of costs, there is always a small variability, which is typically proportionally wider in longer verifications. The end result is that costlier verifications will still get ranked for attention.
 
-And that is all. For more insight into how DARUM works, please check the [Details document](Details.md) in this repo, or the gentler introduction in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html).
+And that is all. For more insight into how DARUM works, please check the [Details document](Details.md) in this repo, or the gentler introduction in the [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html).
 
 Good luck and happy de-brittlefying!
 

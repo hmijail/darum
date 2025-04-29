@@ -1,6 +1,6 @@
 # Some further details on how Darum works
 
-(There's also a less technical writeup in the form of a [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-Dafny-resource-usage-measurement.html) )
+(There's also a less technical writeup in the form of a [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html) )
 
 ## Terminology
 

@@ -166,7 +166,7 @@ Sometimes interesting mutations happen very rarely. Combined with Dafny's [diffi
 
 ### Dafny standard library
 
-Since version 4.4, Dafny includes a standard library that provides pre-verified code. This library includes helper lemmas for things like bitwise manipulation and non-linear arithmetic, which are typical verification pain points. Using this library instead of implementing one's own version might save much work; or, if a reimplementation is needed, can at least offer examples of how things were implemented by Dafny's own developers.
+Since version 4.4, Dafny includes a standard library that provides pre-verified code. This library includes helper lemmas for things like bitwise manipulation and non-linear arithmetic, which are typical verification pain points. Using this library instead of implementing one's own version might save much work; or, if a reimplementation is needed, the library can at least offer examples of how things were implemented by Dafny's own developers.
 
 ### Section on Verification debugging in Ref Manual
 
