@@ -5,8 +5,8 @@ A set of tools to detect and help diagnose brittle verification.
 
 A quick summary follows. Other options:
 * A gentler introduction in the form of a [blog post](https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html).
-* A [walkthrough](docs/Walkthrough.md) of using DARUM on a real project.
-* More technical [details](docs/Details.md).
+* A [walkthrough](https://hmijail.github.io/darum/Walkthrough.html) of using DARUM on a real project.
+* More technical [details](https://hmijail.github.io/darum/Details.html).
 
 
 ## What does Darum do? 
@@ -62,7 +62,7 @@ $ pipx upgrade darum
 
 ## Usage
 
-You can find a full workflow walkthrough [here](docs/Walkthrough.md).
+You can find a full workflow walkthrough [here](https://hmijail.github.io/darum/Walkthrough.html).
 
 In general, the workflow will be:
 1. Run `dafny_measure`
@@ -88,7 +88,7 @@ $ compare_distribution XYZ.log -i XYZ_IA.log
 
 Each of the tools offers a `--help` argument that lists the available options.
 
-For further details about how Darum works and usage strategies, please see the file [Details.md](docs/Details.md).
+For further details about how Darum works and usage strategies, please see the file [Details.md](https://hmijail.github.io/darum/Details.html).
 
 #### How many mutations to run with `dafny_measure`? (`-m` argument)
 
@@ -99,7 +99,7 @@ To work around this, there's some functionality in Darum to analyze multiple sma
 
 ## Interpreting the results
 
-Covered in the [walkthrough](docs/Walkthrough.md).
+Covered in the [walkthrough](https://hmijail.github.io/darum/Walkthrough.html).
 
 ### The plots
 
