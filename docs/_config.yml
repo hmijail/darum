@@ -3,3 +3,5 @@ plugins:
   - jekyll-remote-theme
 minima:
   skin: auto
+
+google_analytics: G-2CKKPYRLRP
