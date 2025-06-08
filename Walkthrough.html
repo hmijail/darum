@@ -1,0 +1,478 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="./">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-2CKKPYRLRP"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-2CKKPYRLRP');
+    </script>
+    <meta property="og:title" content="A quick walkthrough of using DARUM to find and fix brittleness" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="Walkthrough.html" />
+<meta property="og:site_name" content="DARUM" />
+<meta property="og:description" content="How would you use DARUM on your own Dafny project? Let’s walk through the process of verifying Consensys’ DafnyEVM project. We’ll focus on the tools and barely get into the underlying concepts; for..." />
+<meta property="og:image:width" content="1146" />
+<meta property="og:image:height" content="600" />
+<meta property="og:image" content="_images/social_previews/summary_Walkthrough_91569b9d.png" />
+<meta property="og:image:alt" content="How would you use DARUM on your own Dafny project? Let’s walk through the process of verifying Consensys’ DafnyEVM project. We’ll focus on the tools and barely get into the underlying concepts; for..." />
+<meta name="description" content="How would you use DARUM on your own Dafny project? Let’s walk through the process of verifying Consensys’ DafnyEVM project. We’ll focus on the tools and barely get into the underlying concepts; for..." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="index" title="Index" href="genindex.html" /><link rel="search" title="Search" href="search.html" /><link rel="next" title="Some further details on how Darum works" href="Details.html" /><link rel="prev" title="DARUM documentation" href="index.html" />
+
+    <!-- Generated with Sphinx 8.2.3 and Furo 2024.08.06 -->
+        <title>A quick walkthrough of using DARUM to find and fix brittleness</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=354aac6f" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=302659d7" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=e93759b5" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="index.html"><div class="brand">DARUM</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="index.html">
+  
+  
+  <span class="sidebar-brand-text">DARUM</span>
+  
+</a><form class="sidebar-search-container" method="get" action="search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Table of Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">A quick walkthrough of using DARUM to find and fix brittleness</a></li>
+<li class="toctree-l1"><a class="reference internal" href="Details.html">Some further details on how Darum works</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="a-quick-walkthrough-of-using-darum-to-find-and-fix-brittleness">
+<h1>A quick walkthrough of using DARUM to find and fix brittleness<a class="headerlink" href="#a-quick-walkthrough-of-using-darum-to-find-and-fix-brittleness" title="Link to this heading">¶</a></h1>
+<p>How would you use DARUM on your own Dafny project? Let’s walk through the process of verifying Consensys’ DafnyEVM project. We’ll focus on the tools and barely get into the underlying concepts; for explanations please check the <a class="reference internal" href="Details.html"><span class="std std-doc">Details document</span></a> in this repo, or the gentler introduction in the <a class="reference external" href="https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html" rel="noreferrer" target="_blank">blog post</a>.</p>
+<p>This walkthrough was done with DARUM 1.0, Dafny 4.10 and Z3 4.14.1.</p>
+<section id="check-the-whole-project">
+<h2>Check the whole project<a class="headerlink" href="#check-the-whole-project" title="Link to this heading">¶</a></h2>
+<p>The first step could be as simple as verifying your project with DARUM’s <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code> instead of <code class="docutils literal notranslate"><span class="pre">dafny</span></code>.  In the DafnyEVM we used a Gradle-based build process, which boiled down to <code class="docutils literal notranslate"><span class="pre">dafny</span> <span class="pre">src/dafny/evm.dfy</span> <span class="pre">--verify-included-files</span></code>.
+So let’s just change the <code class="docutils literal notranslate"><span class="pre">dafny</span></code> call for <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code>:</p>
+<p><code class="docutils literal notranslate"><span class="pre">$</span> <span class="pre">dafny_measure</span> <span class="pre">src/dafny/evm.dfy</span> <span class="pre">--verify-included-files</span></code></p>
+<p>What does <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code> do?</p>
+<ul class="simple">
+<li><p>It internally calls Dafny’s <code class="docutils literal notranslate"><span class="pre">--measure-complexity</span></code>, which verifies the code many times (10 by default) applying some randomization to Z3’s search for solutions. This results in a JSON log file, to which DARUM adds extra context so that it’s more useful in next steps: the stdout output of the Dafny run, the contents of the input file, the exact command line that was executed. Then this file is timestamped and saved in the output dir (by default “darum/”).</p></li>
+<li><p>It sets Dafny’s timeout to 10M Resource Units, which is equivalent to about 2 seconds (per member) on my 2021 MacBook. You can change that for your project, but don’t make it too permissive yet; we’ll see that short timeouts with many mutations might be a more productive approach.</p></li>
+</ul>
+<p>At this point a log was generated, and <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code> automatically went through the next step of using DARUM’s <code class="docutils literal notranslate"><span class="pre">plot_distribution</span></code> to generate an <a class="reference download internal" download="" href="_downloads/14c8d2a9990c36a59c504c1929f15b63/0426-094129_evm_H599e_M10_L10M_VIF_.html"><span class="xref download myst">interactive HTML page with the analysis’ results</span></a>.</p>
+<p>For convenience, here’s a screenshot.</p>
+<p><img alt="alt text" src="_images/0426-094129_evm_H599e_M10_L10M_VIF_.jpg" /></p>
+<p>What do we see here?</p>
+<ul class="simple">
+<li><p>The <strong>title of the page is the filename of the log</strong> that was just analyzed. It’s structured to ease bookkeeping; we’ll look into that later.</p></li>
+<li><p>The <strong>histogram and table summarize the verification costs</strong> of the Dafny invocation. The table shows all the Dafny members that were verified and their results, ranked by estimated brittleness; and the histogram further plots the verification cost of the top 5 rows of the table, to give you an idea of the probability distribution of their costs. Note the logarithmic Y axis. The scatter plot underneath the histogram shows the raw, pre-binning costs.</p></li>
+<li><p>The table shows that most members of the DafnyEVM verified successfully. In fact, only one of them failed: verification of <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> ran Out Of Resources (OoR, akin to timeout) every time! Hence its plot is a single bar in the Fail/OoR area.</p></li>
+</ul>
+<p>We’ll focus on <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> for the rest of this walkthrough, since its constant timeouts hint that it needs the most attention. Indeed it’s ranked first. But let’s take a quick look at the rest of the table.</p>
+<ul class="simple">
+<li><p>Notice the “speedup” column. With apologies to <a class="reference external" href="https://en.wikipedia.org/wiki/Amdahl's_law" rel="noreferrer" target="_blank">Gene Amdahl</a>, this gives a pithy summary of the variability for this member. The minimum is 1, for no speedup; there’s no upper bound. <strong>Empirically, potential speedups higher than 1.1 should be considered a brittleness warning.</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ByteUtils.WriteUint256</span></code> is the member ranked 2nd highest. What can we learn about it already?</p>
+<ul>
+<li><p>In these 10 verification runs, the min and max cost was 439k and 1.4M. So <strong>sometimes it’s verifying 3x slower than it could</strong>.</p></li>
+<li><p>How frequently does this happen? The <strong>distribution plot</strong> helps answer: its verification time for these 10 runs was clustered around 500k RUs, but 1 of those runs took 3.4x longer time. Imagine you were editing something at that moment: wouldn’t you worry that you broke something? But it’s random!</p></li>
+</ul>
+</li>
+<li><p>The rest of entries in the table show smaller variability, and their worst cases are smaller. Hence their estimated brittleness (reflected in their score) is lower. They might not matter much individually, but together they might end up causing a highly variable total verification time.</p></li>
+<li><p>There is a “Comments” section that gathers diagnostic messages and suggestions resulting from the analysis.</p></li>
+<li><p>Looking back at <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code>, we see now that its timeouts imply that it’s at the very least 10x costlier to verify than any other member in the project.</p></li>
+</ul>
+</section>
+<section id="focus-on-a-single-suspicious-member">
+<h2>Focus on a single suspicious member<a class="headerlink" href="#focus-on-a-single-suspicious-member" title="Link to this heading">¶</a></h2>
+<p>Let’s work on <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code>. We will use again <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code>, but since this member is slow/expensive to verify, let’s focus exclusively on it: instead of the whole project we verify just its file, and add Dafny’s <code class="docutils literal notranslate"><span class="pre">--symbol</span> <span class="pre">Not</span></code> to filter out the rest of symbols. We’ll also set a higher cost limit and many more mutations. In this way we get the maximum information for the least possible cost.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ dafny_measure src/dafny/bytecode.dfy --limitRC 100M --mutations 100 --symbol Not
+</pre></div>
+</div>
+<p>A cost of 100M RUs translates to a timeout of about 22 sec in my 2021 MacBook, so these 100 mutations took over 30 minutes. The resulting page is <a class="reference download internal" download="" href="_downloads/11797b1510b632a551668c651250cf15/0425-191322_dafny_bytecode_H71b2_M100_L100M_sNot_.html"><span class="xref download myst">here</span></a>.
+And turns out that <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> is still timing out most of the time. This means that this member is actually over 100x costlier than everything else in the project!
+… or is it?
+<img alt="Screenshot of the page generated to analyze the verification cost of Bytecode.Not with a large cost limit" src="_images/0425-191322_dafny_bytecode_H71b2_M100_L100M_sNot_.jpg" /></p>
+<p>Well, not exactly. 1 out of 100 verifications was successful with 89M. This could already motivate us to dig deeper instead of just keep increasing the cost limit; but my experience working with this file is that sometimes it seemed to verify quicker than that! So let’s try to run many focused mutations, but with a small cost limit:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ dafny_measure src/dafny/bytecode.dfy --limitRC 3M --mutations 300 --symbol Not
+</pre></div>
+</div>
+<p>A cost of 3M translates to a timeout of about 2 sec in my laptop, so these 300 mutations took about 10 minutes. The resulting page is <a class="reference download internal" download="" href="_downloads/772749f9f39a231876baf52aaa7e9b8a/0425-195051_dafny_bytecode_H71b2_M300_L3M_sNot_.html"><span class="xref download myst">here</span></a>.</p>
+<p><img alt="Screenshot of the page generated to analyze the verification cost of Bytecode.Not with a small cost limit" src="_images/0425-195051_dafny_bytecode_H71b2_M300_L3M_sNot_.jpg" /></p>
+<p>Look closely: the x axis values are much smaller now. And indeed <strong>1 verification out of those 300 finished with a cost of only 1M.</strong> So we have now concrete proof of this member’s cost variability: it verifies very slowly over 99% of the time, but there is a 100x faster verification path that Dafny/Z3 take less than 1% of the time.</p>
+<p>There’s a few things to note here:</p>
+<ul class="simple">
+<li><p>This behavior couldn’t be caught with a small number of verification runs.</p></li>
+<li><p>Simple statistical measures like averages or covariances would probably obscure this behavior instead of exposing it. Hence DARUM’s focus on max, min and plots.</p></li>
+<li><p>Dafny by default starts verification with random seed 0. Hence the only source of randomness is the code itself. <strong>Any code change injects randomness – and surprises.</strong> In contrast, <strong>DARUM’s goal is to purposefully explore and bound the randomness, and take advantage of it to find possible improvements.</strong></p></li>
+</ul>
+<p>If only we could force Dafny to always take that very rare but 100x fast path! Unfortunately Dafny doesn’t allow us to do that <em>directly</em>. But, knowing the problem, we might find workarounds. For example, we could try to pare down the context that Dafny has inside of <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> so that it can only find the fast verification path instead of the slow one – as outlined in the <a class="reference external" href="https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html" rel="noreferrer" target="_blank">blog post</a>. Or we could simply change the implementation.</p>
+<p>But having some more details would be helpful to know what to do.</p>
+</section>
+<section id="digging-deeper-into-a-brittle-member-isolate-assertions">
+<h2>Digging deeper into a brittle member: isolate assertions<a class="headerlink" href="#digging-deeper-into-a-brittle-member-isolate-assertions" title="Link to this heading">¶</a></h2>
+<p>Let’s dig a bit deeper into <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> to try to break down what makes it slow. We’ll do this by verifying it again, this time adding Dafny’s argument <code class="docutils literal notranslate"><span class="pre">--isolate-assertions</span></code>. The difference is that, in normal operation, Dafny batches its assertions, hoping that their common context would them verify faster together; while with this setting it will verify each assertion in isolation.
+Also, now we know that the fast verification happens less than 1% of the verifications, so let’s run 100 mutations just in case.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>dafny_measure<span class="w"> </span>src/dafny/bytecode.dfy<span class="w"> </span>--isolate-assertions<span class="w"> </span>-m<span class="w"> </span><span class="m">100</span><span class="w"> </span>--symbol<span class="w"> </span>Not
+</pre></div>
+</div>
+<p><img alt="alt text" src="_images/0425-222919_bytecode_H71b2_M100_L10M_IA_sNot_.jpg" /></p>
+<p>In Isolate Assertions mode we get cost details per assertion, so DARUM generates its HTML page with richer details: exact source location and snippet attributed to each assertion, assertion description, plus a whole new table, which shows the <em>total cost of the isolated assertions</em> corresponding to each member. There’s much to unpack for a screenshot, so remember you can open the actual page <a class="reference download internal" download="" href="_downloads/73f38964f905b4c26528b4ea85ce6a81/0425-222919_bytecode_H71b2_M100_L10M_IA_sNot_.html"><span class="xref download myst">here</span></a>. In this case we only see the assertions for <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code>, since we used the <code class="docutils literal notranslate"><span class="pre">--symbol</span> <span class="pre">Not</span></code> argument for speed.</p>
+<p>Things are a bit less intuitive at the assertion level since we’re now getting into things that Dafny usually automates for us. But the tables work as before: the elements have been ranked by the potential for brittleness, so looking at the top ones is a good bet. So, what do we see here?</p>
+<ul class="simple">
+<li><p>Assertion Batches 6 and 7 are at the top, and they share the same position in the source code. You can check the highlighted code by clicking in the link in the “location” column.</p></li>
+<li><p>Next assertions quickly drop their variability, so they have less estimated improvement potential.</p></li>
+<li><p>In the “Member-level summary” table, <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> is listed as costing a pretty stable 2.5M. Not as good as the 1M we caught in the previous analysis, but much better than the earlier 100M+! We’ll see the implications of this range later.</p></li>
+</ul>
+<p>At this point we can jump to the code location in those first 2 assertions and see what we can do.</p>
+<div class="highlight-c++ notranslate"><div class="highlight"><pre><span></span><span class="n">var</span><span class="w"> </span><span class="n">mhs</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="n">st</span><span class="p">.</span><span class="n">Peek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="n">as</span><span class="w"> </span><span class="n">bv256</span><span class="p">;</span>
+<span class="n">var</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">mhs</span><span class="p">)</span><span class="w"> </span><span class="n">as</span><span class="w"> </span><span class="n">u256</span><span class="p">;</span><span class="w">         </span><span class="c1">//the location for the assertions is the &quot;as&quot;</span>
+</pre></div>
+</div>
+<p>The bad news is that Dafny’s description for assertions 6 &amp; 7 is not very helpful: <code class="docutils literal notranslate"><span class="pre">Result</span> <span class="pre">of</span> <span class="pre">operation</span> <span class="pre">never</span> <span class="pre">violates</span> <span class="pre">newtype</span> <span class="pre">constraints</span> <span class="pre">for</span> <span class="pre">'u256'</span></code>. And this code is the very core of the NOT opcode implemented by <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code>. <code class="docutils literal notranslate"><span class="pre">mhs</span></code> is a <code class="docutils literal notranslate"><span class="pre">bv256</span></code>, and we know that bitvector operations are considered expensive in Dafny.</p>
+<p>The good news is that we could just change the implementation to use arithmetic instead.</p>
+<div class="highlight-c++ notranslate"><div class="highlight"><pre><span></span><span class="n">var</span><span class="w"> </span><span class="n">mhs</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="n">st</span><span class="p">.</span><span class="n">Peek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="n">as</span><span class="w"> </span><span class="n">nat</span><span class="p">;</span>
+<span class="n">var</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="p">(</span><span class="n">MAX_U256</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">mhs</span><span class="p">)</span><span class="w"> </span><span class="n">as</span><span class="w"> </span><span class="n">u256</span><span class="p">;</span>
+</pre></div>
+</div>
+<p>Success! <strong>The file bytecode.dfy verifies now in a very stable 5 seconds, and even analyzing with <code class="docutils literal notranslate"><span class="pre">--limitRC</span> <span class="pre">1M</span></code> doesn’t cause timeouts.</strong></p>
+</section>
+<section id="how-to-deal-with-isolated-assertions">
+<h2>How to deal with isolated assertions?<a class="headerlink" href="#how-to-deal-with-isolated-assertions" title="Link to this heading">¶</a></h2>
+<p>Until now we have seen 2 DARUM tools:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code>, which we used explicitly</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">plot_distribution</span></code>, which was called automatically by <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code> to generate HTML pages from the Dafny logs.</p></li>
+</ul>
+<p>Both work in “Isolated Assertions mode” and “normal mode”. But there’s information to be gleaned by comparing those modes. For example, we saw that <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> (bitvector implementation) when verified normally takes over 100M to finish, but rarely only 80M or even 1M. But now in IA mode it took a rather constant 2.5M. Is this useful for anything?</p>
+<p>There’s a 3rd tool, <code class="docutils literal notranslate"><span class="pre">compare_distributions</span></code>, that helps answer this. For the next example let’s enable both versions of the <code class="docutils literal notranslate"><span class="pre">Not</span></code> member (bitvector and arithmetic), verify the file first in normal mode and then in IA mode, and then feed both logs to <code class="docutils literal notranslate"><span class="pre">compare_distributions</span></code>. Here’s the <a class="reference download internal" download="" href="_downloads/e3440174528dbf35212e64d9a7783a0f/0427-003517_bytecode_H20ad_M10_L10M%2B0427-003013_bytecode_H20ad_M10_L10M_IA.html"><span class="xref download myst">resulting page</span></a></p>
+<p><img alt="Screenshot of the page generated by the compare_distributions tool" src="_images/0427-003517_bytecode_H20ad_M10_L10M%2B0427-003013_bytecode_H20ad_M10_L10M_IA.jpg" /></p>
+<p>In this plot, each <code class="docutils literal notranslate"><span class="pre">X</span></code> marks the cost of a normal verification of a member, while each <code class="docutils literal notranslate"><span class="pre">I</span></code> marks the <em>total cost of the isolated assertions</em> for that same member. We verified 10 mutations in each mode, so for each member there’s 10 X and 10 I. Notice the patterns that emerge:</p>
+<ul class="simple">
+<li><p>First of all, only our old friend <code class="docutils literal notranslate"><span class="pre">Bytecode.NotBV</span></code> had trouble. All the other members seem relatively well-behaved, since they have low speedup values. So let’s see what they seem to have in common.</p></li>
+<li><p>The I are typically to the right, while the X are to the left. This means that for each member, <strong>normal verification is typically about 10x cheaper</strong> than with Isolated Assertions. Note the log x axis.</p></li>
+<li><p>The <strong>I are typically closely packed together</strong>, while <strong>the X have a bit more variation</strong>. This means that across the analyzed mutations, the <em>total cost</em> of verifying a given member with <strong>Isolated Assertions is typically more stable</strong> than the cost of its normal verification.</p>
+<ul>
+<li><p>Indeed, columns “spdup” and “spdup IA” in the table show that even these relatively well-behaved members reach speedups of around 1.07 in normal verification, but only 1.02 in IA mode - as mentioned in the <a class="reference internal" href="Details.html"><span class="std std-doc">Details doc</span></a>.</p></li>
+</ul>
+</li>
+<li><p>The only member that breaks these patterns is <code class="docutils literal notranslate"><span class="pre">Bytecode.NotBV</span></code>. Its Xs are very high, in the OoR/timeout area, and indeed we know from previous analysis that it’s over 100M. Also, its Is are rather disperse when compared to the other members. This means that even Isolated Assertions show variability for this member; and when these <strong>variable assertions get batched together in a normal verification, this seems to cause <em>disproportionally</em> higher variability</strong>.</p></li>
+</ul>
+<p>This all <strong>suggests an algorithm for stabilization</strong>: by manually causing Dafny to batch together a smaller number of assertions, the variability should be reduced, in exchange of a relatively high (but relatively stable) verification cost. Indeed, Dafny has lately been adding features to ease this task of controlling the context that reaches Z3.</p>
+<p>However, doing this too early risks premature <em>pessimization</em> and losing the ease of development and readability that was one of Dafny’s advantages. So the trick is probably to detect when this needs to be done, and by how much. <strong>Here’s where DARUM helps!</strong></p>
+<p>Finally, you might wonder where are the results for the new implementation <code class="docutils literal notranslate"><span class="pre">Bytecode.NotArith</span></code>? Turns out that it is so low in the rank of variability that it didn’t even make it to the plot. Nice! 🏆</p>
+</section>
+<section id="final-notes">
+<h2>Final notes<a class="headerlink" href="#final-notes" title="Link to this heading">¶</a></h2>
+<section id="verifying-many-mutations">
+<h3>Verifying many mutations<a class="headerlink" href="#verifying-many-mutations" title="Link to this heading">¶</a></h3>
+<p><strong>DARUM can only help if some random mutation results in a notably different cost</strong>. The default of 10 mutations and cost limited to 10M RUs is ok for quick tests, but it’s no substitute for the information that a longer run of 100 or 200 mutations would surface. As we saw in this walkthrough, the fast verification path in <code class="docutils literal notranslate"><span class="pre">Bytecode.Not</span></code> only happened less than 1% of the time; so most runs with fewer mutations wouldn’t find brittleness.</p>
+<p>So, could we you just run lots of mutations? Unfortunately, Dafny has trouble running such long series of mutations (it gets progressively slower and eventually hangs, losing all progress - issue <a class="reference external" href="https://github.com/dafny-lang/dafny/issues/5316" rel="noreferrer" target="_blank">5316</a>), and DARUM’s multi-file support is currently broken (issue <a class="reference external" href="https://github.com/hmijail/darum/issues/1" rel="noreferrer" target="_blank">1</a>). So the best solution currently is to run series of 100-200 mutations at once if using <code class="docutils literal notranslate"><span class="pre">--symbol</span></code>, or much less if using <code class="docutils literal notranslate"><span class="pre">--verify-included-files</span></code> or <code class="docutils literal notranslate"><span class="pre">--isolated</span> <span class="pre">assertions</span></code>.</p>
+</section>
+<section id="log-filename-structure">
+<h3>Log filename structure<a class="headerlink" href="#log-filename-structure" title="Link to this heading">¶</a></h3>
+<p>Remember we mentioned those cryptic filenames in the logs and HTML pages?
+When you use DARUM you might find yourself comparing many slightly changed versions of your files. But a situation with many small changes causing randomized results will challenge your sanity, and not many people are happy to commit experiments to version control.</p>
+<p>Hence, DARUM offers some help: every time you analyze a file with <code class="docutils literal notranslate"><span class="pre">dafny_measure</span></code>, the standard Dafny logs are augmented with the source code of the analyzed file and the stdout of that dafny run; and every log and HTML file is timestamped. Additionally, to help with bookkeeping, this is also reflected in the filename structure, which includes the verification date in MMDD-HHmmss format, plus the details of the dafny call, plus 4 bytes of the hash of the contents of the input file - so that you can always know whether the files you are comparing are exactly the same.</p>
+</section>
+<section id="not-only-brittleness">
+<h3>Not only brittleness<a class="headerlink" href="#not-only-brittleness" title="Link to this heading">¶</a></h3>
+<p>While DARUM is focused on brittleness, most of the analysis will evidently be helpful for detection of plain old slow verification. Even if you’re not dealing with a multimodal random distribution of costs, there is always a small variability, which is typically proportionally wider in longer verifications. The end result is that costlier verifications will still get ranked for attention.</p>
+<p>And that is all. For more insight into how DARUM works, please check the <a class="reference internal" href="Details.html"><span class="std std-doc">Details document</span></a> in this repo, or the gentler introduction in the <a class="reference external" href="https://hmijailblog.blogspot.com/2025/04/Introducing-DARUM-DAfny-Resource-Usage-Measurement.html" rel="noreferrer" target="_blank">blog post</a>.</p>
+<p>Good luck and happy de-brittlefying!</p>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="Details.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Some further details on how Darum works</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="index.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Home</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            Made with 
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">A quick walkthrough of using DARUM to find and fix brittleness</a><ul>
+<li><a class="reference internal" href="#check-the-whole-project">Check the whole project</a></li>
+<li><a class="reference internal" href="#focus-on-a-single-suspicious-member">Focus on a single suspicious member</a></li>
+<li><a class="reference internal" href="#digging-deeper-into-a-brittle-member-isolate-assertions">Digging deeper into a brittle member: isolate assertions</a></li>
+<li><a class="reference internal" href="#how-to-deal-with-isolated-assertions">How to deal with isolated assertions?</a></li>
+<li><a class="reference internal" href="#final-notes">Final notes</a><ul>
+<li><a class="reference internal" href="#verifying-many-mutations">Verifying many mutations</a></li>
+<li><a class="reference internal" href="#log-filename-structure">Log filename structure</a></li>
+<li><a class="reference internal" href="#not-only-brittleness">Not only brittleness</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="_static/documentation_options.js?v=b08bce9f"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/scripts/furo.js?v=5fa4622c"></script>
+    </body>
+</html>
